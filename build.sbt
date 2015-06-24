@@ -44,7 +44,7 @@ lazy val root = (project in file(".")).
         <timezone>America/Denver</timezone>
         </developer>
         </developers>),
-    useGpg := true
+//    useGpg := true
   ).
   aggregate(lib, csv2LatLon)
 
