@@ -60,7 +60,13 @@ object TRS {
       (Char, Stream[(CSVRecord, ValidationNel[Throwable, TRS])]) = 
     stream match {
       case header +: records =>
-        val separator = header.trim.split(' ')(1).head
+        val separator = {
+          val fields = header.trim.split(Array(' ', '\t')).filter(_.length > 0)
+          if (fields.length > 1) {
+            if (fields(1).length == 1) fields(1).head
+            else fields(0).last
+          } else ';'
+        }
         val columnNames = header.split(separator).toList map (_.trim)
         (separator, records map convertRecord(separator, columnNames))
     }
