@@ -48,7 +48,7 @@ object TownshipGeocoder {
     else (new Exception("Unexpected response")).left
 
   val parseRss: (xml.Elem) => \/[Throwable, RSSChannel] =
-    rss.parse _
+    RSS.parse _
 
   val selectTownshipGeoCoder: (RSSChannel) => \/[Throwable, RSSChannel] = ch =>
     if (ch.title == "Township GeoCoder") ch.right
