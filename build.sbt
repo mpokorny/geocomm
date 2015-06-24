@@ -2,7 +2,7 @@ name := "geocomm"
 
 version := "0.1.0"
 
-organization := "truffulatree.org"
+organization := "org.truffulatree"
 
 licenses := Seq(
   "Mozilla Public License Version 2.0" -> url("https://mozilla.org/MPL/2.0/"))
