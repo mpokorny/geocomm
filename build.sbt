@@ -43,7 +43,7 @@ lazy val root = (project in file(".")).
         <email>martin@truffulatree.org</email>
         <timezone>America/Denver</timezone>
         </developer>
-        </developers>),
+        </developers>)
 //    useGpg := true
   ).
   aggregate(lib, csv2LatLon)
