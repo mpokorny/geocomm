@@ -1,0 +1,16 @@
+language: scala
+
+scala:
+  - 2.11.6
+
+jdk:
+  - openjdk7
+
+cache:
+  directories:
+    - $HOME/.ivy2/cache
+    - $HOME/.sbt/boot
+
+before_cache:
+  - find $HOME/.sbt -name "*.lock" | xargs -rm
+  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs -rm
