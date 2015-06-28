@@ -14,7 +14,8 @@ lazy val commonSettings = Seq(
     "-explaintypes",
     "-Xlint"),
   libraryDependencies ++= Seq(
-    "org.scalaz" %% "scalaz-core" % "7.1.3")
+    "org.scalaz" %% "scalaz-core" % "7.1.3",
+    "org.scalaz" %% "scalaz-effect" % "7.1.3")
 )
 
 lazy val root = (project in file(".")).
@@ -58,4 +59,8 @@ lazy val lib = project.
 
 lazy val csv2LatLon = project.
   settings(commonSettings: _*).
+  settings(
+    libraryDependencies ++= Seq(
+      "org.scalaz" %% "scalaz-iteratee" % "7.1.3")
+  ).
   dependsOn(lib)
