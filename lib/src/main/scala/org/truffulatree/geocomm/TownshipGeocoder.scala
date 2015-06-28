@@ -1,9 +1,12 @@
 package org.truffulatree.geocomm
 
 import java.util.Date
+import scala.concurrent.{ ExecutionContext, Future }
 import scala.xml
 import scalaz._
 import Scalaz._
+import effect.IO
+import effect.IoExceptionOr
 import dispatch._, Defaults._
 
 object TownshipGeocoder {
@@ -26,13 +29,9 @@ object TownshipGeocoder {
       trs.townshipDuplicate.shows).mkString(",")
   }
 
-  def request(trs: TRS): Future[\/[Throwable, xml.Elem]] = {
+  def request(trs: TRS): IO[Future[xml.Elem]] = IO {
     val query = townshipGeocoder <<? Map("TRS" -> trsProps(trs))
-    try {
-      Http(query OK as.xml.Elem) map (_.right)
-    } catch {
-      case e: Exception => Future(e.left)
-    }
+    Http(query OK as.xml.Elem)
   }
 
   val getData: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
@@ -116,9 +115,19 @@ object TownshipGeocoder {
       (xml.Elem) => \/[Throwable, List[(Double, Double)]] =
     getPart(extractTownshipRangeSection)
 
-  def requestLatLon(trs: TRS) =
-    request(trs) map (_ >>= getLatLon)
+  // def requestPart[A](trs: TRS, get: xml.Elem => \/[Throwable, A])(
+  //   implicit ed: ExecutionContext): IO[IoExceptionOr[Future[A]]] =
+  //   request(trs) map (rsp =>
+  //     rsp map (ioe =>
+  //       ioe map ((fx: Future[xml.Elem]) =>
+  //         fx flatMap (xml =>
+  //           get(xml).fold(
+  //             th => Future.failed(th),
+  //             ll => Future.successful(ll))))))
 
-  def requestTownshipRangeSection(trs: TRS) =
-    request(trs) map (_ >>= getTownshipRangeSection)
+  // def requestLatLon(trs: TRS)(implicit ec: ExecutionContext) =
+  //   requestPart(trs, getLatLon)
+
+  // def requestTownshipRangeSection(trs: TRS)(implicit ic: ExecutionContext) =
+  //   requestPart(trs, getTownshipRangeSection)
 }
