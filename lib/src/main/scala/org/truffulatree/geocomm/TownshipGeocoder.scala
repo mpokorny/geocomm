@@ -29,7 +29,7 @@ object TownshipGeocoder {
       trs.townshipDuplicate.shows).mkString(",")
   }
 
-  def request(trs: TRS): IO[Future[xml.Elem]] = IO {
+  def request(trs: TRS): Future[xml.Elem] = {
     val query = townshipGeocoder <<? Map("TRS" -> trsProps(trs))
     Http(query OK as.xml.Elem)
   }
@@ -115,19 +115,159 @@ object TownshipGeocoder {
       (xml.Elem) => \/[Throwable, List[(Double, Double)]] =
     getPart(extractTownshipRangeSection)
 
-  // def requestPart[A](trs: TRS, get: xml.Elem => \/[Throwable, A])(
-  //   implicit ed: ExecutionContext): IO[IoExceptionOr[Future[A]]] =
-  //   request(trs) map (rsp =>
-  //     rsp map (ioe =>
-  //       ioe map ((fx: Future[xml.Elem]) =>
-  //         fx flatMap (xml =>
-  //           get(xml).fold(
-  //             th => Future.failed(th),
-  //             ll => Future.successful(ll))))))
+  // type Requested =
+  //   RecPlus[ValidationNel[Throwable, (Deadline, Future[xml.Elem])]]
+  // type IoRequested = IoExceptionOr[Requested]
 
-  // def requestLatLon(trs: TRS)(implicit ec: ExecutionContext) =
-  //   requestPart(trs, getLatLon)
+  // def sendRequest(requestTimeout: FiniteDuration):
+  //     EnumerateeT[IoParsed, IoRequested, IO] =
+  //   Iteratee.map { ioparsed =>
+  //     ioparsed map {
+  //       case (recNum, sep, rec, vtrs) =>
+  //         (recNum, sep, rec, vtrs map (trs =>
+  //           (Deadline.now + requestTimeout, TownshipGeocoder.request(trs))))
+  //     }
+  //   }
 
-  // def requestTownshipRangeSection(trs: TRS)(implicit ic: ExecutionContext) =
-  //   requestPart(trs, getTownshipRangeSection)
+  // type Response = RecPlus[\/[NonEmptyList[Throwable],xml.Elem]]
+  // type IoResponse = IoExceptionOr[Response]
+
+  // def completeRequest(req: Requested): Response = req match {
+  //   case (recNum, sep, rec, vreq) =>
+  //     (recNum,
+  //       sep,
+  //       rec,
+  //       vreq.fold(
+  //         ths => ths.left,
+  //         fr => fr match {
+  //           case (deadline, future) =>
+  //             if (future.isCompleted) 
+  //               Await.result(future, -1.seconds).right
+  //             else
+  //               NonEmptyList(
+  //                 new TimeoutException("ERROR: Request timed out")).left
+  //         }))
+  // }
+ 
+  // def partitionComplete(reqs: Vector[Requested]):
+  //     (Vector[Response], Vector[Requested]) = {
+  //   val (c, uc) = reqs partition {
+  //     case (_, _, _, vreq) => 
+  //       vreq.isFailure || vreq.exists {
+  //         case (deadline, future) =>
+  //           future.isCompleted || deadline.isOverdue
+  //       }
+  //   }
+  //   (c map (completeRequest _), uc)
+  // }
+
+  // def getResponses: EnumerateeT[IoRequested, IoResponse, IO] =
+  //   new EnumerateeT[IoRequested, IoResponse, IO] {
+  //     def apply[A] = {
+  //       def nextResponseOrCont(
+  //         rsps: Vector[Response],
+  //         reqs: Vector[Requested],
+  //         k: (Input[IoResponse] => IterateeT[IoResponse, IO, A])):
+  //           IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]] = {
+  //         val (rsps1, reqs1) = {
+  //           val (newRsps, allReqs) = partitionComplete(reqs)
+  //           (rsps ++ newRsps, allReqs)
+  //         }
+  //         rsps1.headOption map { rsp =>
+  //           k(elInput(IoExceptionOr(rsp))) >>== doneOr(loop(rsps1.tail, reqs1))
+  //         } getOrElse {
+  //           cont(step(rsps1, reqs1)(k))
+  //         }
+  //       }
+
+  //       def loop(rsps: Vector[Response], reqs: Vector[Requested]) =
+  //         step(rsps, reqs) andThen cont[IoRequested, IO, StepT[IoResponse, IO, A]]
+
+  //       def step(rsps: Vector[Response], reqs: Vector[Requested]):
+  //           ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
+  //             Input[IoRequested] =>
+  //             IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) = {
+  //         k => in => {
+  //           in(
+  //             el = ioreq => {
+  //               ioreq.fold(
+  //                 exc => drainNextResponseOrContOrDone(rsps, reqs, exc.some, k, in),
+  //                 req => nextResponseOrCont(rsps, reqs :+ req, k))
+  //             },
+  //             empty = nextResponseOrCont(rsps, reqs, k),
+  //             eof = drainNextResponseOrContOrDone(rsps, reqs, none, k, in))
+  //         }
+  //       }
+
+  //       def drainNextResponseOrContOrDone(
+  //         rsps: Vector[Response],
+  //         reqs: Vector[Requested],
+  //         oex: Option[IoExceptionOr.IoException],
+  //         k: Input[IoResponse] => IterateeT[IoResponse, IO, A],
+  //         in: Input[IoRequested]): 
+  //           IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]] = {
+  //         val (rsps1, reqs1) = {
+  //           val (newRsps, allReqs) = partitionComplete(reqs)
+  //           (rsps ++ newRsps, allReqs)
+  //         }
+  //         rsps1.headOption map { rsp =>
+  //           k(elInput(IoExceptionOr(rsp))) >>==
+  //           doneOr(drainLoop(rsps1.tail, reqs1, oex))
+  //         } getOrElse {
+  //           if (!reqs.isEmpty) {
+  //             cont(drainStep(rsps1, reqs1, oex)(k))
+  //           }
+  //           else {
+  //             oex map { ex =>
+  //               done[IoRequested, IO, StepT[IoResponse, IO, A]](
+  //                 scont(k), Input(IoExceptionOr.ioException(ex)))
+  //             } getOrElse {
+  //               done[IoRequested, IO, StepT[IoResponse, IO, A]](
+  //                 scont(k), in)
+  //             }
+  //           }
+  //         }
+  //       }
+
+  //       def drainLoop(
+  //         rsps: Vector[Response], 
+  //         reqs: Vector[Requested], 
+  //         ex: Option[IoExceptionOr.IoException]) =
+  //         drainStep(rsps, reqs, ex).andThen(
+  //           cont[IoRequested, IO, StepT[IoResponse, IO, A]])
+
+  //       def drainStep(
+  //         rsps: Vector[Response],
+  //         reqs: Vector[Requested],
+  //         ex: Option[IoExceptionOr.IoException]):
+  //           ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
+  //             Input[IoRequested] =>
+  //             IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) = {
+  //         k => in => {
+  //           in(
+  //             el = _ => drainNextResponseOrContOrDone(rsps, reqs, ex, k, in),
+  //             empty = drainNextResponseOrContOrDone(rsps, reqs, ex, k, in),
+  //             eof = drainNextResponseOrContOrDone(rsps, reqs, ex, k, in))
+  //         }
+  //       }
+
+  //       doneOr(loop(Vector.empty, Vector.empty))
+  //     }
+  //   }
+
+  // type LatLonResponse = RecPlus[\/[NonEmptyList[Throwable],(Double, Double)]]
+  // type IoLatLonResponse = IoExceptionOr[LatLonResponse]
+
+  // def getLatLon: EnumerateeT[IoResponse, IoLatLonResponse, IO] =
+  //   Iteratee.map { iollrsp =>
+  //     iollrsp map {
+  //       case (recNum, sep, rec, vel) =>
+  //         (recNum,
+  //           sep,
+  //           rec,
+  //           vel flatMap (el =>
+  //             TownshipGeocoder.getLatLon(el).leftMap(NonEmptyList(_))))
+  //     }
+  //   }
+
 }
