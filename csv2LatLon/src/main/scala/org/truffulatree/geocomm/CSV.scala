@@ -200,13 +200,13 @@ object CSV {
     RecPlus[ValidationNel[Throwable, (Deadline, Future[xml.Elem])]]
   type IoRequested = IoExceptionOr[Requested]
 
-  def sendRequest(requestTimeout: FiniteDuration):
+  def sendRequest(geocoder: TownshipGeoCoder, requestTimeout: FiniteDuration):
       EnumerateeT[IoParsed, IoRequested, IO] =
     Iteratee.map { ioparsed =>
       ioparsed map {
         case (recNum, sep, rec, vtrs) =>
           (recNum, sep, rec, vtrs map (trs =>
-            (requestTimeout fromNow, TownshipGeocoder.request(trs))))
+            (requestTimeout fromNow, geocoder.request(trs))))
       }
     }
 
@@ -318,15 +318,15 @@ object CSV {
   type LatLonResponse = RecPlus[\/[NonEmptyList[Throwable],(Double, Double)]]
   type IoLatLonResponse = IoExceptionOr[LatLonResponse]
 
-  def getLatLon: EnumerateeT[IoResponse, IoLatLonResponse, IO] =
+  def getLatLon(geocoder: TownshipGeoCoder):
+      EnumerateeT[IoResponse, IoLatLonResponse, IO] =
     Iteratee.map { iollrsp =>
       iollrsp map {
         case (recNum, sep, rec, vel) =>
           (recNum,
             sep,
             rec,
-            vel flatMap (el =>
-              TownshipGeocoder.getLatLon(el).leftMap(NonEmptyList(_))))
+            vel flatMap (el => geocoder.getLatLon(el).leftMap(NonEmptyList(_))))
       }
     }
 

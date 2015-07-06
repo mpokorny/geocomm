@@ -9,12 +9,10 @@ import effect.IO
 import effect.IoExceptionOr
 import dispatch._, Defaults._
 
-object TownshipGeocoder {
+abstract class TownshipGeoCoder {
 
-  val townshipGeocoder = url(
+  val townshipGeoCoder = url(
     "http://www.geocommunicator.gov/TownshipGeoCoder/TownshipGeoCoder.asmx/GetLatLon")
-
-  var lastRequest = Future.successful[xml.Elem](<empty/>)
 
   def trsProps(trs: TRS): String = {
     List(
@@ -31,14 +29,9 @@ object TownshipGeocoder {
       trs.townshipDuplicate.shows).mkString(",")
   }
 
-  def request(trs: TRS): Future[xml.Elem] = {
-    // Slamming the geocoder web service as quickly as possible produces
-    // unreliable results, so we limit ourselves to only one outstanding request
-    // at a time. Whether that is that best policy is undetermined.
-    val query = townshipGeocoder <<? Map("TRS" -> trsProps(trs))
-    lastRequest = lastRequest >> Http(query OK as.xml.Elem)
-    lastRequest
-  }
+  def query(trs: TRS) = townshipGeoCoder <<? Map("TRS" -> trsProps(trs))
+
+  def request(trs: TRS): Future[xml.Elem]
 
   def getData: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
     if (elem.label == "TownshipGeocoderResult")
@@ -120,4 +113,23 @@ object TownshipGeocoder {
   def getTownshipRangeSection: 
       (xml.Elem) => \/[Throwable, List[(Double, Double)]] =
     getPart(extractTownshipRangeSection)
+}
+
+class MeteredTownshipGeoCoder extends TownshipGeoCoder {
+
+  var lastRequest = Future.successful[xml.Elem](<empty/>)
+
+  def request(trs: TRS): Future[xml.Elem] = {
+    // Slamming the geocoder web service as quickly as possible produces
+    // unreliable results, so we limit ourselves to only one outstanding request
+    // at a time. Whether that is that best policy is undetermined.
+    lastRequest = lastRequest >> Http(query(trs) OK as.xml.Elem)
+    lastRequest
+  }
+}
+
+class UnlimitedTownshipGeoCoder extends TownshipGeoCoder {
+
+  def request(trs: TRS): Future[xml.Elem] =
+    Http(query(trs) OK as.xml.Elem)
 }

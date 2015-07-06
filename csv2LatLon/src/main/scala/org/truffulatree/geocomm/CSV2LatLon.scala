@@ -13,11 +13,12 @@ import CSV._
 object Main extends SafeApp {
   override def runl(args: List[String]): IO[Unit] = {
     args.headOption.map { filename =>
+      val geocoder = new MeteredTownshipGeoCoder
       for {
         ss <- (Iteratee.collectT[IoLatLonResponse, IO, List] %=
-          getLatLon %=
+          getLatLon(geocoder) %=
           getResponses %=
-          sendRequest(5 second) %=
+          sendRequest(geocoder, 5 second) %=
           parseRecords %=
           getRecords &=
           enumerateLines(new File(filename))).run
