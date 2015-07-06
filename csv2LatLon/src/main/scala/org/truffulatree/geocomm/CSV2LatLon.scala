@@ -29,6 +29,15 @@ object Main extends SafeApp {
     }
   }
 
+  def showResponse(parsed: List[IoResponse]): IO[List[Unit]] = {
+    ((parsed map { p =>
+      p.fold(
+        ex => ex.getMessage,
+        par => par.toString
+      )
+    }) map (IO.putStrLn _)).sequenceU
+  }
+
   def checkResponses(responses: List[IoLatLonResponse]): IO[List[LatLonResponse]] = {
     def printErr(bad: List[IoLatLonResponse]) =
       bad.headOption map { ioll =>
