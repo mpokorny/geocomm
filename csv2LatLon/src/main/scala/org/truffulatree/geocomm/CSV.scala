@@ -106,7 +106,7 @@ object CSV {
   def enumerateLines(file: File) = {
     lazy val it = scala.io.Source.fromFile(file).getLines
     enumIoSource(
-      () => IoExceptionOr(it.hasNext),
+      () => IoExceptionOr(it.hasNext) ,
       (b: IoExceptionOr[Boolean]) => b exists identity,
       (_: Boolean) => it.next
     )
@@ -131,30 +131,26 @@ object CSV {
         (sep, trimmedHdr.split(sep).map(_.trim).toList)
       }
       def apply[A] = {
-        def step0:
-            ((StepT[IoRec, IO, A]) => 
-              IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) = stp => {
-          stp(
-            cont = in => {
-              cont((iiostr: Input[IoStr]) => {
-                iiostr(
-                  el = iostr => {
-                    iostr.fold(
-                      exc => done(stp, Input(IoExceptionOr.ioException(exc))),
-                      str => {
-                        val (sep, cols) = header(str)
-                        val ordering = Order.orderBy(cols.zipWithIndex.toMap)
-                        loop(0, sep, cols, ordering)(in)
-                      })
+        def loop0 = step0 andThen cont[IoStr, IO, StepT[IoRec, IO, A]]
+        def step0: ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
+          Input[IoStr] => IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) =
+          k => in => {
+            in(
+              el = iostr => {
+                iostr.fold(
+                  exc => {
+                    k(elInput(IoExceptionOr.ioException(exc))) >>==
+                    doneOr(loop0)
                   },
-                  empty = step0(stp),
-                  eof = done(stp, iiostr))
-              })
-            },
-            done = (a, in) => {
-              done(stp, eofInput)
-            })
-        }
+                  str => {
+                    val (sep, cols) = header(str)
+                    val ordering = Order.orderBy(cols.zipWithIndex.toMap)
+                    cont(step(0, sep, cols, ordering)(k))
+                  })
+              },
+              empty = cont(step0(k)),
+              eof = done(scont(k), in))
+          }
         def loop(recNum: Int, sep: Char, cols: List[String], order: Order[String]) =
           step(recNum, sep, cols, order).andThen(
             cont[IoStr, IO, StepT[IoRec, IO, A]])
@@ -183,7 +179,7 @@ object CSV {
               eof = done(scont(k), in))
           }
         }
-        step0
+        doneOr(loop0)
       }
     }
 
@@ -210,7 +206,7 @@ object CSV {
       ioparsed map {
         case (recNum, sep, rec, vtrs) =>
           (recNum, sep, rec, vtrs map (trs =>
-            (Deadline.now + requestTimeout, TownshipGeocoder.request(trs))))
+            (requestTimeout fromNow, TownshipGeocoder.request(trs))))
       }
     }
 
@@ -225,9 +221,10 @@ object CSV {
         vreq.fold(
           ths => ths.left,
           fr => fr match {
-            case (deadline, future) =>
-              if (future.isCompleted) 
+            case (_, future) =>
+              if (future.isCompleted) {
                 Await.result(future, -1.seconds).right
+              }
               else
                 NonEmptyList(
                   new TimeoutException("ERROR: Request timed out")).left
@@ -237,7 +234,7 @@ object CSV {
   def partitionComplete(reqs: Vector[Requested]):
       (Vector[Response], Vector[Requested]) = {
     val (c, uc) = reqs partition {
-      case (_, _, _, vreq) => 
+      case (_, _, _, vreq) =>
         vreq.isFailure || vreq.exists {
           case (deadline, future) =>
             future.isCompleted || deadline.isOverdue
@@ -252,7 +249,8 @@ object CSV {
         def nextResponseOrCont(
           rsps: Vector[Response],
           reqs: Vector[Requested],
-          k: (Input[IoResponse] => IterateeT[IoResponse, IO, A])):
+          k: Input[IoResponse] => IterateeT[IoResponse, IO, A],
+          in: Input[IoRequested]):
             IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]] = {
           val (rsps1, reqs1) = {
             val (newRsps, remReqs) = partitionComplete(reqs)
@@ -261,12 +259,15 @@ object CSV {
           rsps1.headOption map { rsp =>
             k(elInput(IoExceptionOr(rsp))) >>== doneOr(loop(rsps1.tail, reqs1))
           } getOrElse {
-            cont(step(rsps1, reqs1)(k))
+            k(emptyInput) >>== doneOr(k1 => cont(step(rsps1, reqs1)(k1)))
           }
         }
 
-        def loop(rsps: Vector[Response], reqs: Vector[Requested]) =
-          step(rsps, reqs) andThen cont[IoRequested, IO, StepT[IoResponse, IO, A]]
+        def loop(rsps: Vector[Response], reqs: Vector[Requested]):
+          ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
+            IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) =
+            step(rsps, reqs).andThen(
+              cont[IoRequested, IO, StepT[IoResponse, IO, A]])
 
         def step(rsps: Vector[Response], reqs: Vector[Requested]):
             ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
@@ -276,65 +277,39 @@ object CSV {
             in(
               el = ioreq => {
                 ioreq.fold(
-                  exc => drainNextResponseOrContOrDone(rsps, reqs, exc.some, k, in),
-                  req => nextResponseOrCont(rsps, reqs :+ req, k))
+                  exc => {
+                    k(elInput(IoExceptionOr.ioException(exc))) >>==
+                    doneOr(loop(rsps, reqs))
+                  },
+                  req =>
+                    nextResponseOrCont(rsps, reqs :+ req, k, in))
               },
-              empty = nextResponseOrCont(rsps, reqs, k),
-              eof = drainNextResponseOrContOrDone(rsps, reqs, none, k, in))
+              empty = nextResponseOrCont(rsps, reqs, k, in),
+              eof = drainResponses(rsps, reqs, in)(k))
           }
         }
 
-        def drainNextResponseOrContOrDone(
+        def drainResponses(
           rsps: Vector[Response],
           reqs: Vector[Requested],
-          oex: Option[IoExceptionOr.IoException],
-          k: Input[IoResponse] => IterateeT[IoResponse, IO, A],
-          in: Input[IoRequested]): 
-            IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]] = {
-          val (rsps1, reqs1) = {
-            val (newRsps, remReqs) = partitionComplete(reqs)
-            (rsps ++ newRsps, remReqs)
-          }
-          rsps1.headOption map { rsp =>
-            k(elInput(IoExceptionOr(rsp))) >>==
-            doneOr(drainLoop(rsps1.tail, reqs1, oex))
-          } getOrElse {
-            if (!reqs1.isEmpty) {
-              cont(drainStep(rsps1, reqs1, oex)(k))
-            }
-            else {
-              oex map { ex =>
-                k(elInput(IoExceptionOr.ioException(ex))) >>==
-                doneOr(drainLoop(Vector.empty, Vector.empty, none))
-              } getOrElse {
-                done[IoRequested, IO, StepT[IoResponse, IO, A]](
-                  scont(k), in)
-              }
-            }
-          }
-        }
-
-        def drainLoop(
-          rsps: Vector[Response], 
-          reqs: Vector[Requested], 
-          ex: Option[IoExceptionOr.IoException]) =
-          drainStep(rsps, reqs, ex).andThen(
-            cont[IoRequested, IO, StepT[IoResponse, IO, A]])
-
-        def drainStep(
-          rsps: Vector[Response],
-          reqs: Vector[Requested],
-          ex: Option[IoExceptionOr.IoException]):
+          in: Input[IoRequested]):
             ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
-              Input[IoRequested] =>
-              IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) = {
-          k => in => {
-            in(
-              el = _ => drainNextResponseOrContOrDone(rsps, reqs, ex, k, in),
-              empty = drainNextResponseOrContOrDone(rsps, reqs, ex, k, in),
-              eof = drainNextResponseOrContOrDone(rsps, reqs, ex, k, in))
+              IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) =
+          k => {
+            val (rsps1, reqs1) = {
+              val (newRsps, remReqs) = partitionComplete(reqs)
+              (rsps ++ newRsps, remReqs)
+            }
+            rsps1.headOption map { rsp =>
+              k(elInput(IoExceptionOr(rsp))) >>==
+              doneOr(drainResponses(rsps1.tail, reqs1, in))
+            } getOrElse {
+              if (!(rsps1.isEmpty && reqs1.isEmpty))
+                k(emptyInput) >>== doneOr(drainResponses(rsps1, reqs1, in))
+              else
+                k(eofInput) >>== doneOr(k1 => done(scont(k1), in))
+            }
           }
-        }
 
         doneOr(loop(Vector.empty, Vector.empty))
       }
