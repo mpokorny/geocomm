@@ -9,19 +9,13 @@ import effect._
 import iteratee._
 import Scalaz._
 import CSV._
+import TownshipGeoCoder.LatLonResponse
 
 object Main extends SafeApp {
   override def runl(args: List[String]): IO[Unit] = {
-    args.headOption.map { filename =>
-      val geocoder = new MeteredTownshipGeoCoder
+    args.headOption map { filename =>
       for {
-        ss <- (Iteratee.collectT[IoLatLonResponse, IO, List] %=
-          getLatLon(geocoder) %=
-          getResponses %=
-          sendRequest(geocoder, 5 second) %=
-          parseRecords %=
-          getRecords &=
-          enumerateLines(new File(filename))).run
+        ss <- latLons(filename).run
         ll <- checkResponses(ss)
         _ <- (headerLine(ll) ++ csvLines(ll)).map(IO.putStrLn(_)).sequenceU
       } yield ()
@@ -30,17 +24,19 @@ object Main extends SafeApp {
     }
   }
 
-  def showResponse(parsed: List[IoResponse]): IO[List[Unit]] = {
-    ((parsed map { p =>
-      p.fold(
-        ex => ex.getMessage,
-        par => par.toString
-      )
-    }) map (IO.putStrLn _)).sequenceU
+  type LatLonResult = IoExceptionOr[RecPlus[LatLonResponse]]
+
+  def latLons(filename: String): IterateeT[_, IO, List[LatLonResult]] = {
+    val geocoder =
+      new MeteredTownshipGeoCoder[({type F[X] = IoExceptionOr[RecPlus[X]]})#F]
+    trsRecords(filename)(
+      geocoder.requestLatLon(5 second)(
+        Iteratee.collectT[LatLonResult, IO, List]))
   }
 
-  def checkResponses(responses: List[IoLatLonResponse]): IO[List[LatLonResponse]] = {
-    def printErr(bad: List[IoLatLonResponse]) =
+  def checkResponses(responses: List[LatLonResult]):
+      IO[List[RecPlus[LatLonResponse]]] = {
+    def printErr(bad: List[LatLonResult]) =
       bad.headOption map { ioll =>
         ioll.fold(
           ex => IO.putStrLn(s"ERROR: Failed reading input file, output file may be incomplete: ${ex.getMessage}"),
@@ -55,9 +51,9 @@ object Main extends SafeApp {
     } yield (g map (_.toOption.get))
   }
 
-  def headerLine(recs: List[LatLonResponse]): List[String] =
+  def headerLine(recs: List[RecPlus[LatLonResponse]]): List[String] =
     recs.headOption.map(toHeader _).toList
 
-  def csvLines(recs: List[LatLonResponse]): List[String] =
+  def csvLines(recs: List[RecPlus[LatLonResponse]]): List[String] =
     recs map (toLatLonCSV _)
 }

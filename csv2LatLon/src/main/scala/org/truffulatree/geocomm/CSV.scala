@@ -1,9 +1,7 @@
 package org.truffulatree.geocomm
 
-import java.io.File
-import scala.concurrent.{ Await, Future, TimeoutException }
-import scala.concurrent.duration._
 import scala.language.higherKinds
+import java.io.File
 import scala.collection.SortedMap
 import scala.xml
 import scalaz._
@@ -184,154 +182,53 @@ object CSV {
     }
 
   type RecPlus[A] = (Int, Char, CSVRecord, A)
-
-  type Parsed = RecPlus[ValidationNel[Throwable, TRS]]
+  type Parsed = RecPlus[ThrowablesOr[TRS]]
   type IoParsed = IoExceptionOr[Parsed]
+
+  implicit object IoReqPlusFunctor
+      extends Functor[({ type F[X] = IoExceptionOr[RecPlus[X]] })#F] {
+    def map[A, B](iora: IoExceptionOr[RecPlus[A]])(f: A => B): 
+        IoExceptionOr[RecPlus[B]] =
+      iora.map { ra =>
+        ra match {
+          case (recNum, sep, rec, a) =>
+            (recNum, sep, rec, f(a))
+        }
+      }
+  }
+
+  implicit object IoReqPlusFoldable
+      extends Foldable[({ type F[X] = IoExceptionOr[RecPlus[X]] })#F] {
+    def foldMap[A, B](iora: IoExceptionOr[RecPlus[A]])(f: A => B)(
+      implicit F: Monoid[B]): B =
+      iora.fold(
+        _ => F.zero,
+        ra => ra match {
+          case (_, _, _, a) => f(a)
+        })
+
+    def foldRight[A, B](iora: IoExceptionOr[RecPlus[A]], z: => B)(
+      f: (A, => B) => B): B =
+      iora.fold(
+        _ => z,
+        ra => ra match {
+          case (_, _, _, a) => f(a, z)
+        })
+  }
 
   def parseRecords: EnumerateeT[IoRec, IoParsed, IO] =
     Iteratee.map { iorec =>
       iorec map {
         case (recNum, sep, rec) =>
-          (recNum, sep, rec, convertRecord(rec))
+          (recNum, sep, rec, convertRecord(rec).disjunction)
       }
     }
 
-  type Requested =
-    RecPlus[ValidationNel[Throwable, (Deadline, Future[xml.Elem])]]
-  type IoRequested = IoExceptionOr[Requested]
+  def trsRecords[A, F[_]](filename: String): 
+      IterateeT[IoParsed, IO, F[A]] => IterateeT[IoStr, IO, F[A]] = it => 
+  (it %= parseRecords %= getRecords &= enumerateLines(new File(filename)))
 
-  def sendRequest(geocoder: TownshipGeoCoder, requestTimeout: FiniteDuration):
-      EnumerateeT[IoParsed, IoRequested, IO] =
-    Iteratee.map { ioparsed =>
-      ioparsed map {
-        case (recNum, sep, rec, vtrs) =>
-          (recNum, sep, rec, vtrs map (trs =>
-            (requestTimeout fromNow, geocoder.request(trs))))
-      }
-    }
-
-  type Response = RecPlus[\/[NonEmptyList[Throwable],xml.Elem]]
-  type IoResponse = IoExceptionOr[Response]
-
-  def completeRequest(req: Requested): Response = req match {
-    case (recNum, sep, rec, vreq) =>
-      (recNum,
-        sep,
-        rec,
-        vreq.fold(
-          ths => ths.left,
-          fr => fr match {
-            case (_, future) =>
-              if (future.isCompleted) {
-                Await.result(future, -1.seconds).right
-              }
-              else
-                NonEmptyList(
-                  new TimeoutException("ERROR: Request timed out")).left
-          }))
-  }
- 
-  def partitionComplete(reqs: Vector[Requested]):
-      (Vector[Response], Vector[Requested]) = {
-    val (c, uc) = reqs partition {
-      case (_, _, _, vreq) =>
-        vreq.isFailure || vreq.exists {
-          case (deadline, future) =>
-            future.isCompleted || deadline.isOverdue
-        }
-    }
-    (c map (completeRequest _), uc)
-  }
-
-  def getResponses: EnumerateeT[IoRequested, IoResponse, IO] =
-    new EnumerateeT[IoRequested, IoResponse, IO] {
-      def apply[A] = {
-        def nextResponseOrCont(
-          rsps: Vector[Response],
-          reqs: Vector[Requested],
-          k: Input[IoResponse] => IterateeT[IoResponse, IO, A],
-          in: Input[IoRequested]):
-            IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]] = {
-          val (rsps1, reqs1) = {
-            val (newRsps, remReqs) = partitionComplete(reqs)
-            (rsps ++ newRsps, remReqs)
-          }
-          rsps1.headOption map { rsp =>
-            k(elInput(IoExceptionOr(rsp))) >>== doneOr(loop(rsps1.tail, reqs1))
-          } getOrElse {
-            k(emptyInput) >>== doneOr(k1 => cont(step(rsps1, reqs1)(k1)))
-          }
-        }
-
-        def loop(rsps: Vector[Response], reqs: Vector[Requested]):
-          ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
-            IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) =
-            step(rsps, reqs).andThen(
-              cont[IoRequested, IO, StepT[IoResponse, IO, A]])
-
-        def step(rsps: Vector[Response], reqs: Vector[Requested]):
-            ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
-              Input[IoRequested] =>
-              IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) = {
-          k => in => {
-            in(
-              el = ioreq => {
-                ioreq.fold(
-                  exc => {
-                    k(elInput(IoExceptionOr.ioException(exc))) >>==
-                    doneOr(loop(rsps, reqs))
-                  },
-                  req =>
-                    nextResponseOrCont(rsps, reqs :+ req, k, in))
-              },
-              empty = nextResponseOrCont(rsps, reqs, k, in),
-              eof = drainResponses(rsps, reqs, in)(k))
-          }
-        }
-
-        def drainResponses(
-          rsps: Vector[Response],
-          reqs: Vector[Requested],
-          in: Input[IoRequested]):
-            ((Input[IoResponse] => IterateeT[IoResponse, IO, A]) =>
-              IterateeT[IoRequested, IO, StepT[IoResponse, IO, A]]) =
-          k => {
-            val (rsps1, reqs1) = {
-              val (newRsps, remReqs) = partitionComplete(reqs)
-              (rsps ++ newRsps, remReqs)
-            }
-            rsps1.headOption map { rsp =>
-              k(elInput(IoExceptionOr(rsp))) >>==
-              doneOr(drainResponses(rsps1.tail, reqs1, in))
-            } getOrElse {
-              if (!(rsps1.isEmpty && reqs1.isEmpty))
-                k(emptyInput) >>== doneOr(drainResponses(rsps1, reqs1, in))
-              else
-                k(eofInput) >>== doneOr(k1 => done(scont(k1), in))
-            }
-          }
-
-        doneOr(loop(Vector.empty, Vector.empty))
-      }
-    }
-
-  type LatLonResponse = RecPlus[\/[NonEmptyList[Throwable],(Double, Double)]]
-  type IoLatLonResponse = IoExceptionOr[LatLonResponse]
-
-  def getLatLon(geocoder: TownshipGeoCoder):
-      EnumerateeT[IoResponse, IoLatLonResponse, IO] =
-    Iteratee.map { iollrsp =>
-      iollrsp map {
-        case (recNum, sep, rec, vel) =>
-          (recNum,
-            sep,
-            rec,
-            vel flatMap (el => geocoder.getLatLon(el).leftMap(NonEmptyList(_))))
-      }
-    }
-
-  def toLatLonCSV(recp: RecPlus[\/[NonEmptyList[Throwable], (Double, Double)]]):
-      String = {
+  def toLatLonCSV(recp: RecPlus[TownshipGeoCoder.LatLonResponse]): String = {
     val (_, sep, rec, va) = recp
     val newCols = va.fold(
       ths => List("", "", ths.map(_.getMessage).shows),

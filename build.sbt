@@ -54,6 +54,7 @@ lazy val lib = project.
   settings(
     libraryDependencies ++= Seq(
       "org.scala-lang.modules" %% "scala-xml" % "1.0.4",
+      "org.scalaz" %% "scalaz-iteratee" % "7.1.3",
       "net.databinder.dispatch" %% "dispatch-core" % "0.11.2")
   )
 
