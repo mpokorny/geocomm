@@ -237,10 +237,10 @@ abstract class TownshipGeoCoder[F[_]] {
       }
     }
 
-  def requestLatLon[A[_]](requestTimeout: FiniteDuration):
-      (IterateeT[F[LatLonResponse], IO, A[F[LatLonResponse]]] =>
-        IterateeT[F[ThrowablesOr[TRS]], IO, A[F[LatLonResponse]]]) = collect =>
-  (collect %= projectLatLon %= getResponses %= sendRequest(requestTimeout))
+  def requestLatLon[A](requestTimeout: FiniteDuration):
+      (IterateeT[F[LatLonResponse], IO, A] =>
+        IterateeT[F[ThrowablesOr[TRS]], IO, A]) = it =>
+  (it %= projectLatLon %= getResponses %= sendRequest(requestTimeout))
 }
 
 object TownshipGeoCoder {

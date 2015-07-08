@@ -224,8 +224,8 @@ object CSV {
       }
     }
 
-  def trsRecords[A, F[_]](filename: String): 
-      IterateeT[IoParsed, IO, F[A]] => IterateeT[IoStr, IO, F[A]] = it => 
+  def trsRecords[A](filename: String): 
+      IterateeT[IoParsed, IO, A] => IterateeT[IoStr, IO, A] = it => 
   (it %= parseRecords %= getRecords &= enumerateLines(new File(filename)))
 
   def toLatLonCSV(recp: RecPlus[TownshipGeoCoder.LatLonResponse]): String = {
