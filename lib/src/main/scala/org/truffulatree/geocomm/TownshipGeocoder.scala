@@ -167,65 +167,65 @@ abstract class TownshipGeoCoder[F[_]] {
 
   def getResponses: EnumerateeT[F[Requested], F[Response], IO] =
     new EnumerateeT[F[Requested], F[Response], IO] {
-      def apply[A] = {
-        def nextResponseOrCont(
-          rsps: Vector[F[Response]],
-          reqs: Vector[F[Requested]],
-          k: Input[F[Response]] => IterateeT[F[Response], IO, A],
-          in: Input[F[Requested]]):
-            IterateeT[F[Requested], IO, StepT[F[Response], IO, A]] = {
+
+      def nextResponseOrCont[A](
+        rsps: Vector[F[Response]],
+        reqs: Vector[F[Requested]],
+        k: Input[F[Response]] => IterateeT[F[Response], IO, A],
+        in: Input[F[Requested]]):
+          IterateeT[F[Requested], IO, StepT[F[Response], IO, A]] = {
+        val (rsps1, reqs1) = {
+          val (newRsps, remReqs) = partitionComplete(reqs)
+          (rsps ++ newRsps, remReqs)
+        }
+        rsps1.headOption map { rsp =>
+          k(elInput(rsp)) >>== doneOr(loop(rsps1.tail, reqs1))
+        } getOrElse {
+          k(emptyInput) >>== doneOr(k1 => cont(step(rsps1, reqs1)(k1)))
+        }
+      }
+
+      def loop[A](rsps: Vector[F[Response]], reqs: Vector[F[Requested]]):
+          ((Input[F[Response]] => IterateeT[F[Response], IO, A]) =>
+            IterateeT[F[Requested], IO, StepT[F[Response], IO, A]]) =
+        step(rsps, reqs).andThen(
+          cont[F[Requested], IO, StepT[F[Response], IO, A]])
+
+      def step[A](rsps: Vector[F[Response]], reqs: Vector[F[Requested]]):
+          ((Input[F[Response]] => IterateeT[F[Response], IO, A]) =>
+            Input[F[Requested]] =>
+            IterateeT[F[Requested], IO, StepT[F[Response], IO, A]]) = {
+        k => in => {
+          in(
+            el = freq => nextResponseOrCont(rsps, reqs :+ freq, k, in),
+            empty = nextResponseOrCont(rsps, reqs, k, in),
+            eof = drainResponses(rsps, reqs, in)(k))
+        }
+      }
+
+      def drainResponses[A](
+        rsps: Vector[F[Response]],
+        reqs: Vector[F[Requested]],
+        in: Input[F[Requested]]):
+          ((Input[F[Response]] => IterateeT[F[Response], IO, A]) =>
+            IterateeT[F[Requested], IO, StepT[F[Response], IO, A]]) =
+        k => {
           val (rsps1, reqs1) = {
             val (newRsps, remReqs) = partitionComplete(reqs)
             (rsps ++ newRsps, remReqs)
           }
           rsps1.headOption map { rsp =>
-            k(elInput(rsp)) >>== doneOr(loop(rsps1.tail, reqs1))
+            k(elInput(rsp)) >>== doneOr(drainResponses(rsps1.tail, reqs1, in))
           } getOrElse {
-            k(emptyInput) >>== doneOr(k1 => cont(step(rsps1, reqs1)(k1)))
+            if (!(rsps1.isEmpty && reqs1.isEmpty))
+              k(emptyInput) >>== doneOr(drainResponses(rsps1, reqs1, in))
+            else
+              k(eofInput) >>== doneOr(k1 => done(scont(k1), in))
           }
         }
 
-        def loop(rsps: Vector[F[Response]], reqs: Vector[F[Requested]]):
-            ((Input[F[Response]] => IterateeT[F[Response], IO, A]) =>
-              IterateeT[F[Requested], IO, StepT[F[Response], IO, A]]) =
-          step(rsps, reqs).andThen(
-            cont[F[Requested], IO, StepT[F[Response], IO, A]])
-
-        def step(rsps: Vector[F[Response]], reqs: Vector[F[Requested]]):
-            ((Input[F[Response]] => IterateeT[F[Response], IO, A]) =>
-              Input[F[Requested]] =>
-              IterateeT[F[Requested], IO, StepT[F[Response], IO, A]]) = {
-          k => in => {
-            in(
-              el = freq => nextResponseOrCont(rsps, reqs :+ freq, k, in),
-              empty = nextResponseOrCont(rsps, reqs, k, in),
-              eof = drainResponses(rsps, reqs, in)(k))
-          }
-        }
-
-        def drainResponses(
-          rsps: Vector[F[Response]],
-          reqs: Vector[F[Requested]],
-          in: Input[F[Requested]]):
-            ((Input[F[Response]] => IterateeT[F[Response], IO, A]) =>
-              IterateeT[F[Requested], IO, StepT[F[Response], IO, A]]) =
-          k => {
-            val (rsps1, reqs1) = {
-              val (newRsps, remReqs) = partitionComplete(reqs)
-              (rsps ++ newRsps, remReqs)
-            }
-            rsps1.headOption map { rsp =>
-              k(elInput(rsp)) >>== doneOr(drainResponses(rsps1.tail, reqs1, in))
-            } getOrElse {
-              if (!(rsps1.isEmpty && reqs1.isEmpty))
-                k(emptyInput) >>== doneOr(drainResponses(rsps1, reqs1, in))
-              else
-                k(eofInput) >>== doneOr(k1 => done(scont(k1), in))
-            }
-          }
-
+      def apply[A] =
         doneOr(loop(Vector.empty, Vector.empty))
-      }
     }
 
   def projectLatLon: EnumerateeT[F[Response], F[LatLonResponse], IO] =

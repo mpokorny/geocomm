@@ -115,6 +115,7 @@ object CSV {
 
   def getRecords: EnumerateeT[IoStr, IoRec, IO] =
     new EnumerateeT[IoStr, IoRec, IO] {
+
       def header(hdr: String): (Char, List[String]) = {
         val trimmedHdr = hdr.trim
         val sep = {
@@ -128,57 +129,67 @@ object CSV {
         }
         (sep, trimmedHdr.split(sep).map(_.trim).toList)
       }
-      def apply[A] = {
-        def loop0 = step0 andThen cont[IoStr, IO, StepT[IoRec, IO, A]]
-        def step0: ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
-          Input[IoStr] => IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) =
-          k => in => {
-            in(
-              el = iostr => {
-                iostr.fold(
-                  exc => {
-                    k(elInput(IoExceptionOr.ioException(exc))) >>==
-                    doneOr(loop0)
-                  },
-                  str => {
-                    val (sep, cols) = header(str)
-                    val ordering = Order.orderBy(cols.zipWithIndex.toMap)
-                    cont(step(0, sep, cols, ordering)(k))
-                  })
-              },
-              empty = cont(step0(k)),
-              eof = done(scont(k), in))
-          }
-        def loop(recNum: Int, sep: Char, cols: List[String], order: Order[String]) =
-          step(recNum, sep, cols, order).andThen(
-            cont[IoStr, IO, StepT[IoRec, IO, A]])
-        def step(recNum: Int, sep: Char, cols: List[String], order: Order[String]):
-            ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
-              Input[IoStr] => IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) = {
-          k => in => {
-            in(
-              el = iostr => {
-                iostr.fold(
-                  exc => {
-                    k(elInput(IoExceptionOr.ioException(exc))) >>==
-                    doneOr(loop(recNum + 1, sep, cols, order))
-                  },
-                  str => {
-                    k(elInput(IoExceptionOr(
-                      (recNum,
-                        sep,
-                        SortedMap(
-                          cols.zip(str.split(sep).map(_.trim)):_*)(
-                          order.toScalaOrdering))))) >>==
-                    doneOr(loop(recNum + 1, sep, cols, order))
-                  })
-              },
-              empty = cont(step(recNum, sep, cols, order)(k)),
-              eof = done(scont(k), in))
-          }
+
+      def loop0[A] = step0 andThen cont[IoStr, IO, StepT[IoRec, IO, A]]
+
+      def step0[A]: ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
+        Input[IoStr] => IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) =
+        k => in => {
+          in(
+            el = iostr => {
+              iostr.fold(
+                exc => {
+                  k(elInput(IoExceptionOr.ioException(exc))) >>==
+                  doneOr(loop0)
+                },
+                str => {
+                  val (sep, cols) = header(str)
+                  val ordering = Order.orderBy(cols.zipWithIndex.toMap)
+                  cont(step(0, sep, cols, ordering)(k))
+                })
+            },
+            empty = cont(step0(k)),
+            eof = done(scont(k), in))
         }
-        doneOr(loop0)
+
+      def loop[A](
+        recNum: Int,
+        sep: Char,
+        cols: List[String], order: Order[String]) =
+        step(recNum, sep, cols, order).andThen(
+          cont[IoStr, IO, StepT[IoRec, IO, A]])
+
+      def step[A](
+        recNum: Int,
+        sep: Char,
+        cols: List[String],
+        order: Order[String]):
+          ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
+            Input[IoStr] => IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) = {
+        k => in => {
+          in(
+            el = iostr => {
+              iostr.fold(
+                exc => {
+                  k(elInput(IoExceptionOr.ioException(exc))) >>==
+                  doneOr(loop(recNum + 1, sep, cols, order))
+                },
+                str => {
+                  k(elInput(IoExceptionOr(
+                    (recNum,
+                      sep,
+                      SortedMap(
+                        cols.zip(str.split(sep).map(_.trim)):_*)(
+                        order.toScalaOrdering))))) >>==
+                  doneOr(loop(recNum + 1, sep, cols, order))
+                })
+            },
+            empty = cont(step(recNum, sep, cols, order)(k)),
+            eof = done(scont(k), in))
+        }
       }
+
+      def apply[A] = doneOr(loop0)
     }
 
   type RecPlus[A] = (Int, Char, CSVRecord, A)
