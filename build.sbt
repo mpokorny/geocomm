@@ -1,7 +1,7 @@
 name := "geocomm"
 
 lazy val commonSettings = Seq(
-  version := "0.1.0-SNAPSHOT",
+  version := "0.1.0",
   organization := "org.truffulatree",
   licenses := Seq(
     "Mozilla Public License Version 2.0" -> url("https://mozilla.org/MPL/2.0/")),
@@ -15,6 +15,7 @@ lazy val commonSettings = Seq(
     "-Xlint"),
   libraryDependencies ++= Seq(
     "org.scalaz" %% "scalaz-core" % "7.1.3",
+    "org.scalaz" %% "scalaz-iteratee" % "7.1.3",
     "org.scalaz" %% "scalaz-effect" % "7.1.3")
 )
 
@@ -36,15 +37,15 @@ lazy val root = (project in file(".")).
       <scm>
         <url>git@github.com:mpokorny/geocomm.git</url>
         <connection>scm:git:git@github.com:mpokorny/geocomm.git</connection>
-        </scm>
-        <developers>
+      </scm>
+      <developers>
         <developer>
-        <id>martin</id>
-        <name>Martin Pokorny</name>
-        <email>martin@truffulatree.org</email>
-        <timezone>America/Denver</timezone>
+          <id>martin</id>
+          <name>Martin Pokorny</name>
+          <email>martin@truffulatree.org</email>
+          <timezone>America/Denver</timezone>
         </developer>
-        </developers>)
+      </developers>)
 //    useGpg := true
   ).
   aggregate(lib, csv2LatLon)
@@ -54,7 +55,6 @@ lazy val lib = project.
   settings(
     libraryDependencies ++= Seq(
       "org.scala-lang.modules" %% "scala-xml" % "1.0.4",
-      "org.scalaz" %% "scalaz-iteratee" % "7.1.3",
       "net.databinder.dispatch" %% "dispatch-core" % "0.11.2",
       "org.slf4j" % "slf4j-api" % "1.7.5",
       "ch.qos.logback" % "logback-classic" % "1.0.13")
@@ -62,8 +62,10 @@ lazy val lib = project.
 
 lazy val csv2LatLon = project.
   settings(commonSettings: _*).
+  enablePlugins(JavaAppPackaging).
   settings(
-    libraryDependencies ++= Seq(
-      "org.scalaz" %% "scalaz-iteratee" % "7.1.3")
+    packageSummary := "Convert Township/Range/Section in CSV format to Latitude/Longitude",
+    packageDescription := "Township/Range/Section conversion to Latitude/Longitude in CSV files using BLM GeoCommunicator service",
+    maintainer := "Martin Pokorny <martin@truffulatree.org>"
   ).
   dependsOn(lib)
