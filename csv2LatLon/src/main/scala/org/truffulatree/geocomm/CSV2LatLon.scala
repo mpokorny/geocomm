@@ -25,7 +25,7 @@ object Main extends SafeApp {
   }
 
   def showUsage: IO[Unit] = {
-    IO.putStrLn("Usage: XXX [CSV file path]")
+    IO.putStrLn("Usage: csv2latlon [CSV input file path]")
   }
 
   type LatLonPlus = RecPlus[LatLonResponse]
