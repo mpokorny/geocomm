@@ -20,38 +20,38 @@ lazy val commonSettings = Seq(
 )
 
 lazy val root = (project in file(".")).
-  settings(commonSettings: _*).
-  settings(
-    publishMavenStyle := true,
-    publishTo <<= version { (v: String) =>
-      val nexus = "https://oss.sonatype.org/"
-      if (v.trim.endsWith("SNAPSHOT"))
-        Some("snapshots" at nexus + "content/repositories/snapshots")
-      else
-        Some("staging"  at nexus + "service/local/staging/deploy/maven2")
-    },
-    credentials += Credentials(Path.userHome / ".sbt" / "sonatype.txt"),
-    publishArtifact in Test := false,
-    pomIncludeRepository := { _ => false },
-    pomExtra := (
-      <scm>
-        <url>git@github.com:mpokorny/geocomm.git</url>
-        <connection>scm:git:git@github.com:mpokorny/geocomm.git</connection>
-      </scm>
-      <developers>
-        <developer>
-          <id>martin</id>
-          <name>Martin Pokorny</name>
-          <email>martin@truffulatree.org</email>
-          <timezone>America/Denver</timezone>
-        </developer>
-      </developers>)
-//    useGpg := true
-  ).
-  aggregate(lib, csv2LatLon)
+  settings((commonSettings ++ Seq(packagedArtifacts := Map.empty)): _*).
+  aggregate(libgeocomm, csv2LatLon)
 
-lazy val lib = project.
-  settings(commonSettings: _*).
+lazy val publishSettings = Seq(
+  publishMavenStyle := true,
+  publishTo <<= version { (v: String) =>
+    val nexus = "https://oss.sonatype.org/"
+    if (v.trim.endsWith("SNAPSHOT"))
+      Some("snapshots" at nexus + "content/repositories/snapshots")
+    else
+      Some("staging"  at nexus + "service/local/staging/deploy/maven2")
+  },
+  credentials += Credentials(Path.userHome / ".sbt" / "sonatype.txt"),
+  publishArtifact in Test := false,
+  pomIncludeRepository := { _ => false },
+  pomExtra := (
+    <scm>
+      <url>git@github.com:mpokorny/geocomm.git</url>
+      <connection>scm:git:git@github.com:mpokorny/geocomm.git</connection>
+    </scm>
+    <developers>
+      <developer>
+        <id>martin</id>
+        <name>Martin Pokorny</name>
+        <email>martin@truffulatree.org</email>
+        <timezone>America/Denver</timezone>
+      </developer>
+    </developers>)
+)
+
+lazy val libgeocomm = project.
+  settings((commonSettings ++ publishSettings): _*).
   settings(
     libraryDependencies ++= Seq(
       "org.scala-lang.modules" %% "scala-xml" % "1.0.4",
@@ -61,11 +61,11 @@ lazy val lib = project.
   )
 
 lazy val csv2LatLon = project.
-  settings(commonSettings: _*).
+  settings((commonSettings ++ publishSettings): _*).
   enablePlugins(JavaAppPackaging).
   settings(
     packageSummary := "Convert Township/Range/Section in CSV format to Latitude/Longitude",
     packageDescription := "Township/Range/Section conversion to Latitude/Longitude in CSV files using BLM GeoCommunicator service",
     maintainer := "Martin Pokorny <martin@truffulatree.org>"
   ).
-  dependsOn(lib)
+  dependsOn(libgeocomm)
