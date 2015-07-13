@@ -1,7 +1,7 @@
 package org.truffulatree.geocomm
 
 import scala.language.higherKinds
-import java.io.File
+import java.io.{ BufferedReader, FileReader }
 import scala.collection.SortedMap
 import scala.xml
 import scalaz._
@@ -101,13 +101,38 @@ object CSV {
     TRS(_,_,_,_,_,_,_,_,_,_,_)
   }
 
-  def enumerateLines(file: File) = {
-    lazy val it = scala.io.Source.fromFile(file).getLines
-    enumIoSource(
-      () => IoExceptionOr(it.hasNext) ,
-      (b: IoExceptionOr[Boolean]) => b exists identity,
-      (_: Boolean) => it.next
-    )
+  def enumerateLines(filename: String) = {
+    def tryIO[A, B](action: => IoExceptionOr[B]) =
+      IterateeT[A, IO, IoExceptionOr[B]](
+        IO(action).map(r => sdone(r, r.fold(_ => eofInput, _ => emptyInput)))
+      )
+
+    def enum(r: => BufferedReader) =
+      new EnumeratorT[IoExceptionOr[String], IO] {
+        lazy val reader = r
+        override def apply[A] = { (s: StepT[IoExceptionOr[String], IO, A]) =>
+          s.mapCont { k =>
+            tryIO(IoExceptionOr(reader.readLine())).flatMap {
+              case IoExceptionOr(null) => s.pointI
+              case ln @ IoExceptionOr(line) => k(elInput(ln)) >>== apply[A]
+              case ioe => k(elInput(ioe))
+            }
+          }
+        }
+      }
+
+    new EnumeratorT[IoExceptionOr[String], IO] {
+      override def apply[A] = { (s: StepT[IoExceptionOr[String], IO, A]) =>
+        s.mapCont { k =>
+          tryIO(IoExceptionOr(new BufferedReader(new FileReader(filename)))).
+            flatMap {
+              case IoExceptionOr(reader) => IterateeT(
+                enum(reader).apply(s).value.ensuring(IO(reader.close())))
+              case ioe => k(elInput(ioe.map(_ => "")))
+            }
+        }
+      }
+    }
   }
 
   type IoStr = IoExceptionOr[String]
@@ -189,7 +214,7 @@ object CSV {
         }
       }
 
-      def apply[A] = doneOr(loop0)
+      override def apply[A] = doneOr(loop0)
     }
 
   type RecPlus[A] = (Int, Char, CSVRecord, A)
@@ -198,7 +223,7 @@ object CSV {
 
   implicit object IoReqPlusFunctor
       extends Functor[({ type F[X] = IoExceptionOr[RecPlus[X]] })#F] {
-    def map[A, B](iora: IoExceptionOr[RecPlus[A]])(f: A => B): 
+    override def map[A, B](iora: IoExceptionOr[RecPlus[A]])(f: A => B):
         IoExceptionOr[RecPlus[B]] =
       iora.map { ra =>
         ra match {
@@ -210,7 +235,7 @@ object CSV {
 
   implicit object IoReqPlusFoldable
       extends Foldable[({ type F[X] = IoExceptionOr[RecPlus[X]] })#F] {
-    def foldMap[A, B](iora: IoExceptionOr[RecPlus[A]])(f: A => B)(
+    override def foldMap[A, B](iora: IoExceptionOr[RecPlus[A]])(f: A => B)(
       implicit F: Monoid[B]): B =
       iora.fold(
         _ => F.zero,
@@ -218,7 +243,7 @@ object CSV {
           case (_, _, _, a) => f(a)
         })
 
-    def foldRight[A, B](iora: IoExceptionOr[RecPlus[A]], z: => B)(
+    override def foldRight[A, B](iora: IoExceptionOr[RecPlus[A]], z: => B)(
       f: (A, => B) => B): B =
       iora.fold(
         _ => z,
@@ -235,9 +260,8 @@ object CSV {
       }
     }
 
-  def trsRecords[A](filename: String): 
-      IterateeT[IoParsed, IO, A] => IterateeT[IoStr, IO, A] = it => 
-  (it %= parseRecords %= getRecords &= enumerateLines(new File(filename)))
+  def trsRecords[A](filename: String): EnumeratorT[IoParsed, IO] =
+    parseRecords.run(getRecords.run(enumerateLines(filename)))
 
   def toLatLonCSV(recp: RecPlus[TownshipGeoCoder.LatLonResponse]): String = {
     val (_, sep, rec, va) = recp

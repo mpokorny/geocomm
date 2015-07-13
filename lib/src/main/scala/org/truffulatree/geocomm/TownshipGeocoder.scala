@@ -42,7 +42,7 @@ abstract class TownshipGeoCoder[F[_]] {
 
   def request(trs: TRS): Future[xml.Elem]
 
-  def getData: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
+  def getDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
   if (elem.label == "TownshipGeocoderResult")
     \/.fromTryCatchNonFatal {
       (elem \ "CompletionStatus").text match {
@@ -57,11 +57,12 @@ abstract class TownshipGeoCoder[F[_]] {
   def parseRss: (xml.Elem) => \/[Throwable, RSSChannel] =
     RSS.parse _
 
-  def selectTownshipGeoCoder: (RSSChannel) => \/[Throwable, RSSChannel] = ch =>
+  def selectTownshipGeoCoderElem:
+      (RSSChannel) => \/[Throwable, RSSChannel] = ch =>
   if (ch.title == "Township GeoCoder") ch.right
   else (new Exception("'Township GeoCoder' element not found")).left
 
-  def selectGeoCoderItem(itemName: String):
+  def selectGeoCoderElem(itemName: String):
       (RSSChannel) => \/[Throwable, RSSItem] =
     ch => {
       val item = ch.content filter (_.title == itemName)
@@ -72,8 +73,8 @@ abstract class TownshipGeoCoder[F[_]] {
           new Exception(s"'$itemName' item not found")))
     }
 
-  def selectLatLon: (RSSChannel) => \/[Throwable, RSSItem] =
-    selectGeoCoderItem("Lat Lon")
+  def selectLatLonElem: (RSSChannel) => \/[Throwable, RSSItem] =
+    selectGeoCoderElem("Lat Lon")
 
   def parseLatLon: (RSSItem) => \/[Throwable, (Double, Double)] = ch =>
   (ch.content filter { node =>
@@ -86,13 +87,13 @@ abstract class TownshipGeoCoder[F[_]] {
     }
   }).headOption.getOrElse((new Exception("Failed to find 'point' item")).left)
 
-  def getTownshipGeoCoder =
-    getData(_: xml.Elem) >>= parseRss >>= selectTownshipGeoCoder
+  def getTownshipGeoCoderElem =
+    getDataElem(_: xml.Elem) >>= parseRss >>= selectTownshipGeoCoderElem
 
-  def extractLatLon = selectLatLon(_: RSSChannel) >>= parseLatLon
+  def extractLatLon = selectLatLonElem(_: RSSChannel) >>= parseLatLon
 
-  def selectTownshipRangeSection: (RSSChannel) => \/[Throwable, RSSItem] =
-    selectGeoCoderItem("Township Range Section")
+  def selectTownshipRangeSectionElem: (RSSChannel) => \/[Throwable, RSSItem] =
+    selectGeoCoderElem("Township Range Section")
 
   def parseTownshipRangeSection:
       (RSSItem) => \/[Throwable, List[(Double, Double)]] = ch => {
@@ -110,11 +111,11 @@ abstract class TownshipGeoCoder[F[_]] {
   }
 
   def extractTownshipRangeSection =
-    selectTownshipRangeSection(_: RSSChannel) >>= parseTownshipRangeSection
+    selectTownshipRangeSectionElem(_: RSSChannel) >>= parseTownshipRangeSection
 
   def getPart[A](parser: (RSSChannel) => \/[Throwable, A]):
       xml.Elem => \/[Throwable, A] =
-    getTownshipGeoCoder(_: xml.Elem) >>= parser
+    getTownshipGeoCoderElem(_: xml.Elem) >>= parser
 
   def getLatLon: (xml.Elem) => \/[Throwable, (Double, Double)] =
     getPart(extractLatLon)
@@ -224,7 +225,7 @@ abstract class TownshipGeoCoder[F[_]] {
           }
         }
 
-      def apply[A] =
+      override def apply[A] =
         doneOr(loop(Vector.empty, Vector.empty))
     }
 
@@ -237,10 +238,12 @@ abstract class TownshipGeoCoder[F[_]] {
       }
     }
 
-  def requestLatLon[A](requestTimeout: FiniteDuration):
-      (IterateeT[F[LatLonResponse], IO, A] =>
-        IterateeT[F[ThrowablesOr[TRS]], IO, A]) = it =>
-  (it %= projectLatLon %= getResponses %= sendRequest(requestTimeout))
+  def requestLatLon(requestTimeout: FiniteDuration):
+      EnumerateeT[F[ThrowablesOr[TRS]], F[LatLonResponse], IO] =
+    new EnumerateeT[F[ThrowablesOr[TRS]], F[LatLonResponse], IO] {
+      override def apply[A] =
+        k => projectLatLon.apply(k) %= getResponses %= sendRequest(requestTimeout)
+    }
 }
 
 object TownshipGeoCoder {
