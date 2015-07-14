@@ -1,9 +1,10 @@
 package org.truffulatree.geocomm
 
 import scala.language.higherKinds
-import java.io.{ BufferedReader, FileReader }
+import java.io.{ BufferedReader, FileReader, Writer, BufferedWriter, FileWriter }
 import scala.collection.SortedMap
 import scala.xml
+import scala.concurrent.ExecutionContext.Implicits.global
 import scalaz._
 import iteratee._
 import Iteratee._
@@ -43,10 +44,10 @@ object CSV {
     Validation.fromTryCatchNonFatal {
       PrincipalMeridians.
         withName(record.get(PrincipalMeridian.toString).
-        getOrElse("NewMexico"))
+          getOrElse("NewMexico"))
     }
 
-  def getTRNumber(record: CSVRecord, field: Column): 
+  def getTRNumber(record: CSVRecord, field: Column):
       Validation[Throwable, Int] =
     Validation.fromTryCatchNonFatal(record(field.toString).toInt)
 
@@ -56,19 +57,19 @@ object CSV {
       TRS.Fractions(record.get(field.toString).map(_.toInt) getOrElse 0)
     }
 
-  def getTownshipDirection(record: CSVRecord): 
+  def getTownshipDirection(record: CSVRecord):
       Validation[Throwable, Directions.NS] =
     Validation.fromTryCatchNonFatal {
       Directions.ns(record(TownshipDirection.toString))
     }
 
-  def getRangeDirection(record: CSVRecord): 
+  def getRangeDirection(record: CSVRecord):
       Validation[Throwable, Directions.EW] =
     Validation.fromTryCatchNonFatal {
       Directions.ew(record(RangeDirection.toString))
     }
 
-  def getSectionNumber(record: CSVRecord): 
+  def getSectionNumber(record: CSVRecord):
       Validation[Throwable, TRS.Sections.Section] =
     Validation.fromTryCatchNonFatal {
       TRS.Sections(record(SectionNumber.toString).toInt)
@@ -274,6 +275,96 @@ object CSV {
 
   def toHeader(recp: RecPlus[_]): String = {
     val (_, sep, rec, _) = recp
-    (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(s"${sep.toString}")
+      (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(s"${sep.toString}")
   }
+
+  type LatLonPlus = RecPlus[TownshipGeoCoder.LatLonResponse]
+  type LatLonResult = IoExceptionOr[RecPlus[TownshipGeoCoder.LatLonResponse]]
+
+  def startCSVOutput(filename: String):
+      Input[LatLonResult] => IterateeT[LatLonResult, IO, Unit] =
+    in => in(
+      el = llr => IterateeT.IterateeTMonadTrans[LatLonResult].liftM {
+        llr.fold[IO[Option[BufferedWriter]]](
+          th => {
+            IO.putStrLn(s"ERROR: Failure reading input file: ${th.getMessage}").
+              map(_ => none)
+          },
+          _ => {
+            IO(IoExceptionOr(new BufferedWriter(new FileWriter(filename)))) >>=
+            { r =>
+              r.fold(
+                th => IO.putStrLn(s"ERROR: Failure opening output file: ${th.getMessage}").
+                  map(_ => none),
+                w => IO(w.some))
+            }
+          })
+      } flatMap (ow =>
+        ow.map(w => writeHeader(w, llr)).getOrElse(done((), eofInput))),
+      empty = cont(startCSVOutput(filename)),
+      eof = done((), eofInput))
+
+  def writeHeader(writer: BufferedWriter, llr: LatLonResult):
+      IterateeT[LatLonResult, IO, Unit] =
+    IterateeT.IterateeTMonadTrans[LatLonResult].liftM {
+      llr.fold[IO[Option[BufferedWriter]]](
+        _ => IO(none),
+        ll => IO(IoExceptionOr {
+          writer.write(toHeader(ll))
+          writer.newLine()
+          writer.write(toLatLonCSV(ll))
+          writer.newLine()
+        }) >>= { r =>
+          r.fold(
+            th => IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}").
+              map(_ => none),
+            _ => IO(writer.some))
+        })
+    } flatMap (ow => writeRecords(ow))
+
+  def thenClose(writer: BufferedWriter): IO[Option[BufferedWriter]] = {
+    (IO(IoExceptionOr(writer.close())) >>= { r =>
+      r.fold(
+        th => IO.putStrLn(s"ERROR: Failed to close output file:${th.getMessage}"),
+        _ => IO(()))
+    }) >> IO(none[BufferedWriter])
+  }
+
+  def writeRecords(writer: Option[BufferedWriter]):
+      IterateeT[LatLonResult, IO, Unit] =
+    foldM[LatLonResult, IO, Option[BufferedWriter]](writer) { (ow, llr) =>
+      llr.fold(
+        th => {
+          (OptionT(IO(ow)) flatMap { w =>
+            OptionT {
+              IO.putStrLn(s"ERROR: Failure reading input file: ${th.getMessage}") >>
+              thenClose(w)
+            }
+          }).run
+        },
+        ll => {
+          (OptionT(IO(ow)) flatMap { w =>
+            OptionT {
+              IO(IoExceptionOr {
+                w.write(toLatLonCSV(ll))
+                w.newLine()
+              }) >>= { r =>
+                r.fold(
+                  th => {
+                    IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
+                    thenClose(w)
+                  },
+                  _ => IO(ow))
+              }
+            }
+          }).run
+        })
+    } flatMap { ow =>
+      IterateeT.IterateeTMonadTrans[LatLonResult].liftM {
+        ow.map(w => thenClose(w) >> IO(())).getOrElse(IO(()))
+      }
+    }
+
+  def writeCSV(filename: String): IterateeT[LatLonResult, IO, Unit] =
+    cont(startCSVOutput(filename))
 }
