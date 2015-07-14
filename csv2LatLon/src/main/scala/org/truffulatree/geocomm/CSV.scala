@@ -145,24 +145,10 @@ object CSV {
   }
 
   type IoStr = IoExceptionOr[String]
-  type IoRec = IoExceptionOr[(Int, Char, CSVRecord)]
+  type IoRec = IoExceptionOr[(Int, CSVRecord)]
 
   def getRecords: EnumerateeT[IoStr, IoRec, IO] =
     new EnumerateeT[IoStr, IoRec, IO] {
-
-      def header(hdr: String): (Char, List[String]) = {
-        val trimmedHdr = hdr.trim
-        val sep = {
-          val fields = trimmedHdr.split(Array(' ', '\t')) filter (_.length > 0)
-          fields find (_.length == 1) map (_.head) getOrElse {
-            if (fields.length > 1) {
-              fields.map(_.last).
-                find(Set(',', ';', ':', '|') contains (_)) getOrElse ','
-            } else ';'
-          }
-        }
-        (sep, trimmedHdr.split(sep).map(_.trim).toList)
-      }
 
       def loop0[A] = step0 andThen cont[IoStr, IO, StepT[IoRec, IO, A]]
 
@@ -177,25 +163,20 @@ object CSV {
                   doneOr(loop0)
                 },
                 str => {
-                  val (sep, cols) = header(str)
+                  val cols = str.split(",").toList
                   val ordering = Order.orderBy(cols.zipWithIndex.toMap)
-                  cont(step(0, sep, cols, ordering)(k))
+                  cont(step(0, cols, ordering)(k))
                 })
             },
             empty = cont(step0(k)),
             eof = done(scont(k), in))
         }
 
-      def loop[A](
-        recNum: Int,
-        sep: Char,
-        cols: List[String], order: Order[String]) =
-        step(recNum, sep, cols, order).andThen(
-          cont[IoStr, IO, StepT[IoRec, IO, A]])
+      def loop[A](recNum: Int, cols: List[String], order: Order[String]) =
+        step(recNum, cols, order).andThen(cont[IoStr, IO, StepT[IoRec, IO, A]])
 
       def step[A](
         recNum: Int,
-        sep: Char,
         cols: List[String],
         order: Order[String]):
           ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
@@ -206,19 +187,18 @@ object CSV {
               iostr.fold(
                 exc => {
                   k(elInput(IoExceptionOr.ioException(exc))) >>==
-                  doneOr(loop(recNum + 1, sep, cols, order))
+                  doneOr(loop(recNum + 1, cols, order))
                 },
                 str => {
                   k(elInput(IoExceptionOr(
                     (recNum,
-                      sep,
                       SortedMap(
-                        cols.zip(str.split(sep).map(_.trim)):_*)(
+                        cols.zip(str.split(",")):_*)(
                         order.toScalaOrdering))))) >>==
-                  doneOr(loop(recNum + 1, sep, cols, order))
+                  doneOr(loop(recNum + 1, cols, order))
                 })
             },
-            empty = cont(step(recNum, sep, cols, order)(k)),
+            empty = cont(step(recNum, cols, order)(k)),
             eof = done(scont(k), in))
         }
       }
@@ -226,7 +206,7 @@ object CSV {
       override def apply[A] = doneOr(loop0)
     }
 
-  type RecPlus[A] = (Int, Char, CSVRecord, A)
+  type RecPlus[A] = (Int, CSVRecord, A)
   type Parsed = RecPlus[ThrowablesOr[TRS]]
   type IoParsed = IoExceptionOr[Parsed]
 
@@ -236,8 +216,7 @@ object CSV {
         IoExceptionOr[RecPlus[B]] =
       iora.map { ra =>
         ra match {
-          case (recNum, sep, rec, a) =>
-            (recNum, sep, rec, f(a))
+          case (recNum, rec, a) => (recNum, rec, f(a))
         }
       }
   }
@@ -249,7 +228,7 @@ object CSV {
       iora.fold(
         _ => F.zero,
         ra => ra match {
-          case (_, _, _, a) => f(a)
+          case (_, _, a) => f(a)
         })
 
     override def foldRight[A, B](iora: IoExceptionOr[RecPlus[A]], z: => B)(
@@ -257,15 +236,14 @@ object CSV {
       iora.fold(
         _ => z,
         ra => ra match {
-          case (_, _, _, a) => f(a, z)
+          case (_, _, a) => f(a, z)
         })
   }
 
   def parseRecords: EnumerateeT[IoRec, IoParsed, IO] =
     Iteratee.map { iorec =>
       iorec map {
-        case (recNum, sep, rec) =>
-          (recNum, sep, rec, convertRecord(rec).disjunction)
+        case (recNum, rec) => (recNum, rec, convertRecord(rec).disjunction)
       }
     }
 
@@ -273,17 +251,20 @@ object CSV {
     parseRecords.run(getRecords.run(enumerateLines(filename)))
 
   def toLatLonCSV(recp: RecPlus[TownshipGeoCoder.LatLonResponse]): String = {
-    val (_, sep, rec, va) = recp
+    val (_, rec, va) = recp
     val newCols = va.fold(
-      ths => List("", "", ths.map(_.getMessage).shows),
+      ths => List(
+        "",
+        "",
+        s""""${ths.map(_.getMessage).shows.filterNot(_ == '"')}""""),
       a => List(a._1.shows, a._2.shows, ""))
     val newRec = rec.values.toList ++ newCols
-    newRec.mkString(s"${sep.toString}")
+    newRec.mkString(",")
   }
 
   def toHeader(recp: RecPlus[_]): String = {
-    val (_, sep, rec, _) = recp
-      (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(s"${sep.toString}")
+    val (_, rec, _) = recp
+    (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(s",")
   }
 
   type LatLonPlus = RecPlus[TownshipGeoCoder.LatLonResponse]
