@@ -38,7 +38,8 @@ abstract class TownshipGeoCoder[F[_]] {
       trs.townshipDuplicate.shows).mkString(",")
   }
 
-  def query(trs: TRS) = townshipGeoCoder <<? Map("TRS" -> trsProps(trs))
+  protected def query(trs: TRS) =
+    townshipGeoCoder <<? Map("TRS" -> trsProps(trs))
 
   def request(trs: TRS): Future[xml.Elem]
 
@@ -87,10 +88,11 @@ abstract class TownshipGeoCoder[F[_]] {
     }
   }).headOption.getOrElse((new Exception("Failed to find 'point' item")).left)
 
-  def getTownshipGeoCoderElem =
+  def getTownshipGeoCoderElem: (xml.Elem) => \/[Throwable, RSSChannel] =
     getDataElem(_: xml.Elem) >>= parseRss >>= selectTownshipGeoCoderElem
 
-  def extractLatLon = selectLatLonElem(_: RSSChannel) >>= parseLatLon
+  def extractLatLon: (RSSChannel) => \/[Throwable, (Double, Double)] =
+    selectLatLonElem(_: RSSChannel) >>= parseLatLon
 
   def selectTownshipRangeSectionElem: (RSSChannel) => \/[Throwable, RSSItem] =
     selectGeoCoderElem("Township Range Section")
@@ -110,7 +112,8 @@ abstract class TownshipGeoCoder[F[_]] {
       getOrElse((new Exception("Failed to find 'polygon' item")).left)
   }
 
-  def extractTownshipRangeSection =
+  def extractTownshipRangeSection:
+      (RSSChannel) => \/[Throwable, List[(Double, Double)]] =
     selectTownshipRangeSectionElem(_: RSSChannel) >>= parseTownshipRangeSection
 
   def getPart[A](parser: (RSSChannel) => \/[Throwable, A]):

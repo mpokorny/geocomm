@@ -95,7 +95,7 @@ object CSV {
       record.get(TownshipDuplicate.toString).map(_.toInt) getOrElse 0
     }
 
-  def convertRecord(record: CSVRecord) = (
+  def convertRecord(record: CSVRecord): ValidationNel[Throwable, TRS] = (
     getState(record).toValidationNel |@|
       getPrincipalMeridian(record).toValidationNel |@|
       getTRNumber(record, TownshipNumber).toValidationNel |@|
@@ -110,7 +110,7 @@ object CSV {
     TRS(_,_,_,_,_,_,_,_,_,_,_)
   }
 
-  def enumerateLines(filename: String) = {
+  def enumerateLines(filename: String): EnumeratorT[IoExceptionOr[String], IO] = {
     def tryIO[A, B](action: => IoExceptionOr[B]) =
       IterateeT[A, IO, IoExceptionOr[B]](
         IO(action).map(r => sdone(r, r.fold(_ => eofInput, _ => emptyInput)))
