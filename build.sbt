@@ -1,7 +1,7 @@
 name := "geocomm"
 
 lazy val commonSettings = Seq(
-  version := "0.1.0",
+  version := "0.1.1-SNAPSHOT",
   organization := "org.truffulatree",
   licenses := Seq(
     "Mozilla Public License Version 2.0" -> url("https://mozilla.org/MPL/2.0/")),
@@ -16,14 +16,7 @@ lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
     "org.scalaz" %% "scalaz-core" % "7.1.3",
     "org.scalaz" %% "scalaz-iteratee" % "7.1.3",
-    "org.scalaz" %% "scalaz-effect" % "7.1.3")
-)
-
-lazy val root = (project in file(".")).
-  settings((commonSettings ++ Seq(packagedArtifacts := Map.empty)): _*).
-  aggregate(libgeocomm, csv2LatLon)
-
-lazy val publishSettings = Seq(
+    "org.scalaz" %% "scalaz-effect" % "7.1.3"),
   publishMavenStyle := true,
   publishTo <<= version { (v: String) =>
     val nexus = "https://oss.sonatype.org/"
@@ -39,19 +32,23 @@ lazy val publishSettings = Seq(
     <scm>
       <url>git@github.com:mpokorny/geocomm.git</url>
       <connection>scm:git:git@github.com:mpokorny/geocomm.git</connection>
-    </scm>
-    <developers>
+      </scm>
+      <developers>
       <developer>
-        <id>martin</id>
-        <name>Martin Pokorny</name>
-        <email>martin@truffulatree.org</email>
-        <timezone>America/Denver</timezone>
+      <id>martin</id>
+      <name>Martin Pokorny</name>
+      <email>martin@truffulatree.org</email>
+      <timezone>America/Denver</timezone>
       </developer>
-    </developers>)
+      </developers>)
 )
 
+lazy val root = (project in file(".")).
+  settings((commonSettings ++ Seq(packagedArtifacts := Map.empty)): _*).
+  aggregate(libgeocomm, csv2LatLon)
+
 lazy val libgeocomm = project.
-  settings((commonSettings ++ publishSettings): _*).
+  settings(commonSettings: _*).
   settings(
     libraryDependencies ++= Seq(
       "org.scala-lang.modules" %% "scala-xml" % "1.0.4",
@@ -61,7 +58,7 @@ lazy val libgeocomm = project.
   )
 
 lazy val csv2LatLon = project.
-  settings((commonSettings ++ publishSettings): _*).
+  settings(commonSettings: _*).
   enablePlugins(JavaAppPackaging).
   settings(
     packageSummary := "Convert Township/Range/Section in CSV format to Latitude/Longitude",
