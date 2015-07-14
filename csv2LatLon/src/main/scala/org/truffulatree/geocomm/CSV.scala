@@ -124,7 +124,7 @@ object CSV {
             tryIO(IoExceptionOr(reader.readLine())).flatMap {
               case IoExceptionOr(null) => s.pointI
               case ln @ IoExceptionOr(line) => k(elInput(ln)) >>== apply[A]
-              case ioe => k(elInput(ioe))
+              case ioe @ _ => k(elInput(ioe))
             }
           }
         }
@@ -137,7 +137,7 @@ object CSV {
             flatMap {
               case IoExceptionOr(reader) => IterateeT(
                 enum(reader).apply(s).value.ensuring(IO(reader.close())))
-              case ioe => k(elInput(ioe.map(_ => "")))
+              case ioe @ _ => k(elInput(ioe.map(_ => "")))
             }
         }
       }
