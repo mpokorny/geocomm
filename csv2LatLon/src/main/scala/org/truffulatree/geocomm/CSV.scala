@@ -214,10 +214,8 @@ object CSV {
       extends Functor[({ type F[X] = IoExceptionOr[RecPlus[X]] })#F] {
     override def map[A, B](iora: IoExceptionOr[RecPlus[A]])(f: A => B):
         IoExceptionOr[RecPlus[B]] =
-      iora.map { ra =>
-        ra match {
-          case (recNum, rec, a) => (recNum, rec, f(a))
-        }
+      iora.map {
+        case (recNum, rec, a) => (recNum, rec, f(a))
       }
   }
 
