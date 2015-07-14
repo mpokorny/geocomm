@@ -40,12 +40,20 @@ object CSV {
     }
 
   def getPrincipalMeridian(record: CSVRecord):
-      Validation[Throwable, PrincipalMeridians.PM] =
-    Validation.fromTryCatchNonFatal {
-      PrincipalMeridians.
-        withName(record.get(PrincipalMeridian.toString).
-          getOrElse("NewMexico"))
+      Validation[Throwable, PrincipalMeridians.PM] = {
+    val pmCol = PrincipalMeridian.toString
+    if (!record.contains(pmCol)) {
+      Validation.fromTryCatchNonFatal {
+        PrincipalMeridians.withName("NewMexico")
+      }
+    } else {
+      Validation.fromTryCatchNonFatal {
+        PrincipalMeridians(record(pmCol).toInt)
+      } ||| Validation.fromTryCatchNonFatal {
+        PrincipalMeridians.withName(record(pmCol))
+      }
     }
+  }
 
   def getTRNumber(record: CSVRecord, field: Column):
       Validation[Throwable, Int] =
