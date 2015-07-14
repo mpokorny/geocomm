@@ -324,8 +324,8 @@ object CSV {
           writer.newLine()
         }) >>= { r =>
           r.fold(
-            th => IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}").
-              map(_ => none),
+            th => IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
+              thenClose(writer),
             _ => IO(writer.some))
         })
     } flatMap (ow => writeRecords(ow))
