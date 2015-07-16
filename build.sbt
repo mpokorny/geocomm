@@ -16,6 +16,7 @@ lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
     "org.scalaz" %% "scalaz-core" % "7.1.3",
     "org.scalaz" %% "scalaz-iteratee" % "7.1.3",
+    "org.scalaz" %% "scalaz-concurrent" % "7.1.3",
     "org.scalaz" %% "scalaz-effect" % "7.1.3"),
   publishMavenStyle := true,
   publishTo <<= version { (v: String) =>
