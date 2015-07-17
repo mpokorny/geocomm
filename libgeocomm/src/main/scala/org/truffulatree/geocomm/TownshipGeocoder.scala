@@ -1,16 +1,16 @@
 package org.truffulatree.geocomm
 
 import scala.language.higherKinds
-import java.util.Date
-import scala.concurrent.{ Await, ExecutionContext, Future, TimeoutException }
+import scala.concurrent.{ ExecutionContext, Future }
 import scala.concurrent.duration._
+import java.util.Date
 import scala.xml
 import scalaz._
 import iteratee._
-import Iteratee._
+import iteratee.{ Iteratee => I }
 import effect.{ IO, IoExceptionOr }
 import Scalaz._
-import dispatch._, Defaults._
+import dispatch._
 
 abstract class TownshipGeoCoder[F[_]] {
 
@@ -38,10 +38,15 @@ abstract class TownshipGeoCoder[F[_]] {
       trs.townshipDuplicate.shows).mkString(",")
   }
 
+  protected lazy val http = Http.configure { builder =>
+    builder.setRequestTimeout(2000)
+  }
+
   protected def query(trs: TRS) =
     townshipGeoCoder <<? Map("TRS" -> trsProps(trs))
 
-  def request(trs: TRS): IO[Future[xml.Elem]]
+  def request(trs: TRS): Future[xml.Elem] =
+    http(query(trs) OK as.xml.Elem)
 
   def getDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
   if (elem.label == "TownshipGeocoderResult")
@@ -127,30 +132,7 @@ abstract class TownshipGeoCoder[F[_]] {
       (xml.Elem) => \/[Throwable, List[(Double, Double)]] =
     getPart(extractTownshipRangeSection)
 
-  def makeRequest(fthtrs: F[ThrowablesOr[TRS]]): IO[F[Requested]] =
-    fthtrs.traverse { thtrs =>
-      thtrs.fold(
-        ths => IO(-\/(ths)),
-        trs => request(trs) map (r => \/-(r)))
-    }
-
-  def itRequest(fthtrs: F[ThrowablesOr[TRS]]):
-      IterateeT[F[ThrowablesOr[TRS]], IO, F[Requested]] =
-    IterateeT {
-      makeRequest(fthtrs).map(r => sdone(r, emptyInput))
-    }
-
-  def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] = {
-    def inp: (
-      Input[F[ThrowablesOr[TRS]]] =>
-      IterateeT[F[ThrowablesOr[TRS]], IO, F[Requested]]) = { in =>
-      in(
-        el = fthtrs => itRequest(fthtrs),
-        empty = cont(inp),
-        eof = done(???, in))
-    }
-    IterateeT.cont(inp).sequenceI
-  }
+  def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO]
 
   def projectLatLon: EnumerateeT[F[Requested], F[LatLonResponse], IO] =
     Iteratee.map { freq =>
@@ -175,31 +157,67 @@ abstract class TownshipGeoCoder[F[_]] {
 
 object TownshipGeoCoder {
   type Requested = ThrowablesOr[Future[xml.Elem]]
-  //type Response = ThrowablesOr[xml.Elem]
   type LatLonResponse = Future[ThrowablesOr[(Double, Double)]]
 }
 
 class MeteredTownshipGeoCoder[F[_]](
   implicit val tr: Traverse[F], 
-  val ec: ExecutionContext)
+  implicit val ec: ExecutionContext)
     extends TownshipGeoCoder[F] {
 
-  var lastRequest = Future.successful[xml.Elem](<empty/>)
+  import TownshipGeoCoder._
 
-  def request(trs: TRS): IO[Future[xml.Elem]] = {
-    // Slamming the geocoder web service as quickly as possible produces
-    // unreliable results, so we limit ourselves to only one outstanding request
-    // at a time. Whether that is the best policy is undetermined.
-    lastRequest = lastRequest >> Http(query(trs) OK as.xml.Elem)
-    IO(lastRequest)
-  }
+  def makeRequestAfter(prev: Future[xml.Elem], fthtrs: F[ThrowablesOr[TRS]]):
+      F[Requested] =
+    fthtrs.map { thtrs =>
+      thtrs.fold(
+        ths => -\/(ths),
+        trs => \/-(prev >> request(trs)))
+    }
+
+  def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
+    new EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] {
+      def loop[A](prev: Future[xml.Elem]) =
+        step(prev).
+          andThen(I.cont[F[ThrowablesOr[TRS]], IO, StepT[F[Requested], IO, A]])
+
+      def step[A](prev: Future[xml.Elem]):
+          ((Input[F[Requested]] => IterateeT[F[Requested], IO, A]) =>
+            Input[F[ThrowablesOr[TRS]]] =>
+            IterateeT[F[ThrowablesOr[TRS]], IO, StepT[F[Requested], IO, A]]) =
+        k => in => {
+          in(
+            el = fthtrs => {
+              val req = makeRequestAfter(prev, fthtrs)
+              val reqf = req.index(0).map(_.fold(
+                _ => prev,
+                identity)).getOrElse(prev)
+              k(I.elInput(req)) >>== I.doneOr(loop(reqf))
+            },
+            empty = I.cont(step(prev)(k)),
+            eof = I.done(I.scont(k), I.emptyInput))
+        }
+
+      override def apply[A] =
+        I.doneOr(loop(Future.successful(<empty/>)))
+    }
 }
+
 
 class UnlimitedTownshipGeoCoder[F[_]](
   implicit val tr: Traverse[F], 
-  val ec: ExecutionContext)
+  implicit val ec: ExecutionContext)
     extends TownshipGeoCoder[F] {
 
-  def request(trs: TRS): IO[Future[xml.Elem]] =
-    IO(Http(query(trs) OK as.xml.Elem))
+  import TownshipGeoCoder._
+
+  def makeRequest(fthtrs: F[ThrowablesOr[TRS]]): F[Requested] =
+    fthtrs.map { thtrs =>
+      thtrs.fold(
+        ths => -\/(ths),
+        trs => \/-(request(trs)))
+    }
+
+  def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
+    I.map(makeRequest(_))
 }

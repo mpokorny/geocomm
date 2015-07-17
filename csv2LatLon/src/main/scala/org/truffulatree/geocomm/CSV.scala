@@ -168,7 +168,7 @@ object CSV {
                 })
             },
             empty = cont(step0(k)),
-            eof = done(scont(k), in))
+            eof = done(scont(k), emptyInput))
         }
 
       def loop[A](recNum: Int, cols: List[String], order: Order[String]) =
@@ -198,7 +198,7 @@ object CSV {
                 })
             },
             empty = cont(step(recNum, cols, order)(k)),
-            eof = done(scont(k), in))
+            eof = done(scont(k), emptyInput))
         }
       }
 

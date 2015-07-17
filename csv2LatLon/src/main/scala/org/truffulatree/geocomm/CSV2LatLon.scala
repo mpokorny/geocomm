@@ -2,7 +2,7 @@ package org.truffulatree.geocomm
 
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.concurrent.duration._
-import scala.concurrent.ExecutionContext.Implicits.global
+import ExecutionContext.Implicits.global
 import scala.util.{ Success, Failure }
 import scalaz._
 import effect._
@@ -23,10 +23,8 @@ object Main extends SafeApp {
         showUsage
       else
         for {
-          llrs <- latLons(arg0).run
-          ch <- Chan.newChan[LatLonResult]
-          _ <- IO(llrs map writeToChan(ch))
-          _ <- List.fill(llrs.length)(showLatLons(ch)).sequenceU
+          ch <- latLons(arg0).run
+          _ <- showLatLons(ch)
         } yield ()
     } getOrElse {
       showUsage
@@ -36,32 +34,25 @@ object Main extends SafeApp {
   def showUsage: IO[Unit] =
     IO.putStrLn("Usage: csv2latlon [CSV input file path]")
 
-  def latLons(filename: String): IterateeT[_, IO, List[LatLonResponse]] = {
+  def latLons(filename: String):
+      IterateeT[IoRecPlus[ThrowablesOr[TRS]], IO, Chan[Option[LatLonResult]]] = {
     val geocoder = new MeteredTownshipGeoCoder[IoRecPlus]
-    Iteratee.collectT[LatLonResponse, IO, List] %=
+    FutureCompletion.collect[(Double,Double),IoRecPlus] { ioe =>
+      ioe.fold(
+        th => IO.putStrLn(s"ERROR: Failure reading input file: ${th.getMessage}"),
+        _ => IO(()))
+    } %=
     geocoder.requestLatLon &=
     trsRecords(filename)
   }
 
-  def writeToChan(chan: Chan[LatLonResult])(implicit ec: ExecutionContext):
-      LatLonResponse => Unit = { llr =>
-    llr.fold(
-      th => chan.write(IoExceptionOr.ioException(th)).unsafePerformIO,
-      rpf => rpf match {
-        case (recNum, rec, fll) => fll onComplete {
-          case Success(ll) => 
-            chan.write(IoExceptionOr.ioExceptionOr(
-              (recNum, rec, ll))).unsafePerformIO
-          case Failure(th) =>
-            chan.write(IoExceptionOr.ioExceptionOr(
-              (recNum, rec, NonEmptyList(th).left))).unsafePerformIO
-        }
-      })
-  }
-
-  def showLatLons(ch: Chan[LatLonResult]): IO[Unit] = {
-    ch.read >>= { llr =>
-      IO.putStrLn(llr.fold(_.getMessage, toLatLonCSV(_)))
-    }
+  def showLatLons(ch: Chan[Option[LatLonResult]]): IO[Unit] = {
+    val el = for {
+      optLlr <- ch.read
+      _ <- optLlr.map { llr =>
+        IO.putStrLn(llr.fold(_.getMessage, toLatLonCSV(_)))
+      } getOrElse(IO(()))
+    } yield optLlr
+    el iterateWhile (_.isDefined) map (_ => ())
   }
 }
