@@ -8,7 +8,7 @@ import scala.xml
 import scalaz._
 import iteratee._
 import iteratee.{ Iteratee => I }
-import effect.{ IO, IoExceptionOr }
+import effect._
 import Scalaz._
 import dispatch._
 
@@ -38,8 +38,14 @@ abstract class TownshipGeoCoder[F[_]] {
       trs.townshipDuplicate.shows).mkString(",")
   }
 
-  protected lazy val http = Http.configure { builder =>
-    builder.setRequestTimeout(2000)
+  protected lazy val http = {
+    val result = Http.configure { builder => builder.setRequestTimeout(2000) }
+    Http.shutdown()
+    result
+  }
+
+  def shutdown(): Unit = {
+    http.shutdown()
   }
 
   protected def query(trs: TRS) =
@@ -158,6 +164,13 @@ abstract class TownshipGeoCoder[F[_]] {
 object TownshipGeoCoder {
   type Requested = ThrowablesOr[Future[xml.Elem]]
   type LatLonResponse = Future[ThrowablesOr[(Double, Double)]]
+
+  def resource[F[_], G <: TownshipGeoCoder[F]] =
+    new Resource[G] {
+      override def close(g: G): IO[Unit] = {
+        IO(g.shutdown())
+      }
+    }
 }
 
 class MeteredTownshipGeoCoder[F[_]](

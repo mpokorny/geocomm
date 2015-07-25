@@ -53,8 +53,7 @@ object FutureCompletion {
       }).join
   }
 
-  def collect[A,G[_]:Traverse](onEmpty: G[Future[ThrowablesOr[A]]] => IO[Unit])(
-    implicit ec: ExecutionContext):
+  def collect[A,G[_]:Traverse1](implicit ec: ExecutionContext):
       IterateeT[G[Future[ThrowablesOr[A]]], IO, Chan[Option[G[ThrowablesOr[A]]]]] = {
 
     def step(io: IO[Completions[A,G]]):
@@ -63,29 +62,24 @@ object FutureCompletion {
       in => in(
         el = { gftha =>
           val newIo =
-            if (!gftha.empty) {
-              gftha.foldLeft(io) { (io1, ftha) =>
-                io1 >>= { completions =>
-                  for {
-                    _ <- completions.addFuture
-                    _ <- IO {
-                      ftha onComplete {
-                        case Success(s) =>
-                          completions.addValue(gftha.map(_ => s).some).
-                            unsafePerformIO
-                        case Failure(f) =>
-                          completions.addValue(
-                            gftha.map(_ => NonEmptyList(f).left[A]).some).
-                            unsafePerformIO
-                      }
+            gftha.foldLeft(io) { (io1, ftha) =>
+              io1 >>= { completions =>
+                for {
+                  _ <- completions.addFuture
+                  _ <- IO {
+                    ftha onComplete {
+                      case Success(s) =>
+                        completions.addValue(gftha.map(_ => s).some).
+                          unsafePerformIO
+                      case Failure(f) =>
+                        completions.addValue(
+                          gftha.map(_ => NonEmptyList(f).left[A]).some).
+                          unsafePerformIO
                     }
-                  } yield completions
-                }
+                  }
+                } yield completions
               }
-            } else {
-              io >>= (io1 => onEmpty(gftha).map(_ => io1))
             }
-
           I.cont(step(newIo))
         },
         empty = I.cont(step(io)),

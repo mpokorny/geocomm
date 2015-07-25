@@ -109,93 +109,92 @@ object CSV {
     TRS(_,_,_,_,_,_,_,_,_,_,_)
   }
 
-  def enumerateLines(filename: String): EnumeratorT[IoExceptionOr[String], IO] = {
+  def enumerateLines(filename: String): EnumeratorT[String, IO] = {
     def tryIO[A, B](action: => IoExceptionOr[B]) =
       IterateeT[A, IO, IoExceptionOr[B]](
         IO(action).map(r => sdone(r, r.fold(_ => eofInput, _ => emptyInput)))
       )
 
     def enum(r: => BufferedReader) =
-      new EnumeratorT[IoExceptionOr[String], IO] {
+      new EnumeratorT[String, IO] {
         lazy val reader = r
-        override def apply[A] = { (s: StepT[IoExceptionOr[String], IO, A]) =>
+        override def apply[A] = { (s: StepT[String, IO, A]) =>
           s.mapCont { k =>
             tryIO(IoExceptionOr(reader.readLine())).flatMap {
               case IoExceptionOr(null) => s.pointI
-              case ln @ IoExceptionOr(line) => k(elInput(ln)) >>== apply[A]
-              case ioe @ _ => k(elInput(ioe))
+              case IoExceptionOr(line) => k(elInput(line)) >>== apply[A]
+              case ioe @ _ => {
+                IterateeT.IterateeTMonadTrans[String] liftM {
+                  ioe.fold(
+                    th => IO.putStrLn(s"Failure reading input file: ${th.getMessage}"),
+                    _ => IO(())
+                  )
+                } flatMap (_ => s.pointI)
+              }
             }
           }
         }
       }
 
-    new EnumeratorT[IoExceptionOr[String], IO] {
-      override def apply[A] = { (s: StepT[IoExceptionOr[String], IO, A]) =>
+    new EnumeratorT[String, IO] {
+      override def apply[A] = { (s: StepT[String, IO, A]) =>
         s.mapCont { k =>
           tryIO(IoExceptionOr(new BufferedReader(new FileReader(filename)))).
             flatMap {
               case IoExceptionOr(reader) => IterateeT(
                 enum(reader).apply(s).value.ensuring(IO(reader.close())))
-              case ioe @ _ => k(elInput(ioe.map(_ => "")))
+              case ioe @ _ => {
+                IterateeT.IterateeTMonadTrans[String] liftM {
+                  ioe.fold(
+                    th => IO.putStrLn(s"Failed to open input file: ${th.getMessage}"),
+                    _ => IO(())
+                  )
+                } flatMap (_ => s.pointI)
+              }
             }
         }
       }
     }
   }
 
-  type IoStr = IoExceptionOr[String]
-  type IoRec = IoExceptionOr[(Int, CSVRecord)]
+  type Rec = (Int, CSVRecord)
 
-  def getRecords: EnumerateeT[IoStr, IoRec, IO] =
-    new EnumerateeT[IoStr, IoRec, IO] {
+  def getRecords: EnumerateeT[String, Rec, IO] =
+    new EnumerateeT[String, Rec, IO] {
 
-      def loop0[A] = step0 andThen cont[IoStr, IO, StepT[IoRec, IO, A]]
+      def loop0[A] = step0 andThen cont[String, IO, StepT[Rec, IO, A]]
 
-      def step0[A]: ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
-        Input[IoStr] => IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) =
+      def step0[A]: ((Input[Rec] => IterateeT[Rec, IO, A]) =>
+        Input[String] => IterateeT[String, IO, StepT[Rec, IO, A]]) =
         k => in => {
           in(
-            el = iostr => {
-              iostr.fold(
-                exc => {
-                  k(elInput(IoExceptionOr.ioException(exc))) >>==
-                  doneOr(loop0)
-                },
-                str => {
-                  val cols = str.split(",").toList
-                  val ordering = Order.orderBy(cols.zipWithIndex.toMap)
-                  cont(step(0, cols, ordering)(k))
-                })
+            el = str => {
+              val cols = str.split(",").toList
+              val ordering = Order.orderBy(cols.zipWithIndex.toMap)
+              cont(step(0, cols, ordering)(k))
             },
             empty = cont(step0(k)),
             eof = done(scont(k), emptyInput))
         }
 
       def loop[A](recNum: Int, cols: List[String], order: Order[String]) =
-        step(recNum, cols, order).andThen(cont[IoStr, IO, StepT[IoRec, IO, A]])
+        step(recNum, cols, order).andThen(cont[String, IO, StepT[Rec, IO, A]])
 
       def step[A](
         recNum: Int,
         cols: List[String],
         order: Order[String]):
-          ((Input[IoRec] => IterateeT[IoRec, IO, A]) =>
-            Input[IoStr] => IterateeT[IoStr, IO, StepT[IoRec, IO, A]]) = {
+          ((Input[Rec] => IterateeT[Rec, IO, A]) =>
+            Input[String] => IterateeT[String, IO, StepT[Rec, IO, A]]) = {
         k => in => {
           in(
-            el = iostr => {
-              iostr.fold(
-                exc => {
-                  k(elInput(IoExceptionOr.ioException(exc))) >>==
-                  doneOr(loop(recNum + 1, cols, order))
-                },
-                str => {
-                  k(elInput(IoExceptionOr(
-                    (recNum,
-                      SortedMap(
-                        cols.zip(str.split(",")):_*)(
-                        order.toScalaOrdering))))) >>==
-                  doneOr(loop(recNum + 1, cols, order))
-                })
+            el = str => {
+              k(elInput(
+                (recNum,
+                  SortedMap(
+                    cols.zip(str.split(",")):_*)(
+                    order.toScalaOrdering)))) >>==
+              doneOr(loop(recNum + 1, cols, order))
             },
             empty = cont(step(recNum, cols, order)(k)),
             eof = done(scont(k), emptyInput))
@@ -207,30 +206,31 @@ object CSV {
 
   type RecPlus[A] = (Int, CSVRecord, A)
   type Parsed = RecPlus[ThrowablesOr[TRS]]
-  type IoParsed = IoExceptionOr[Parsed]
 
-  implicit object IoReqPlusTraverse
-      extends Traverse[({ type F[X] = IoExceptionOr[RecPlus[X]] })#F] {
-    override def traverseImpl[G[_], A, B](iora: IoExceptionOr[RecPlus[A]])(
-      f: (A) => G[B])(implicit arg0: Applicative[G]): 
-        G[IoExceptionOr[RecPlus[B]]] =
-      iora.fold(
-        th => arg0.point(IoExceptionOr.ioException(th)),
-        rp => rp match {
-          case (recNum, rec, a) =>
-            f(a) map (b => IoExceptionOr.ioExceptionOr((recNum, rec, b)))
-        }
-      )
-  }
+  implicit object ReqPlusTraverse1
+      extends Traverse1[({ type F[X] = RecPlus[X] })#F] {
+    override def traverse1Impl[G[_], A, B](ra: RecPlus[A])(f: (A) => G[B])(
+      implicit arg0: Apply[G]): G[RecPlus[B]] =
+      ra match {
+        case (recNum, rec, a) =>
+          f(a) map (b => (recNum, rec, b))
+      }
 
-  def parseRecords: EnumerateeT[IoRec, IoParsed, IO] =
-    Iteratee.map { iorec =>
-      iorec map {
-        case (recNum, rec) => (recNum, rec, convertRecord(rec).disjunction)
+    override def foldMapRight1[A, B](ra: RecPlus[A])(z: (A) ⇒ B)(
+      f: (A, ⇒ B) ⇒ B): B = {
+      ra match {
+        case (recNum, rec, a) =>
+          f(a, z(a))
       }
     }
+  }
 
-  def trsRecords[A](filename: String): EnumeratorT[IoParsed, IO] =
+  def parseRecords: EnumerateeT[Rec, Parsed, IO] =
+    Iteratee.map {
+      case (recNum, rec) => (recNum, rec, convertRecord(rec).disjunction)
+    }
+
+  def trsRecords[A](filename: String): EnumeratorT[Parsed, IO] =
     parseRecords.run(getRecords.run(enumerateLines(filename)))
 
   def toLatLonCSV(recp: RecPlus[ThrowablesOr[(Double,Double)]]): String = {
@@ -250,93 +250,75 @@ object CSV {
     (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(s",")
   }
 
-  type LatLonPlus = RecPlus[TownshipGeoCoder.LatLonResponse]
-  type LatLonResult = IoExceptionOr[RecPlus[TownshipGeoCoder.LatLonResponse]]
+  type LatLonPlus = RecPlus[ThrowablesOr[(Double,Double)]]
 
-  // def startCSVOutput(filename: String):
-  //     Input[LatLonResult] => IterateeT[LatLonResult, IO, Unit] =
-  //   in => in(
-  //     el = llr => IterateeT.IterateeTMonadTrans[LatLonResult].liftM {
-  //       llr.fold[IO[Option[BufferedWriter]]](
-  //         th => {
-  //           IO.putStrLn(s"ERROR: Failure reading input file: ${th.getMessage}").
-  //             map(_ => none)
-  //         },
-  //         _ => {
-  //           IO(IoExceptionOr(new BufferedWriter(new FileWriter(filename)))) >>=
-  //           { r =>
-  //             r.fold(
-  //               th => IO.putStrLn(s"ERROR: Failure opening output file: ${th.getMessage}").
-  //                 map(_ => none),
-  //               w => IO(w.some))
-  //           }
-  //         })
-  //     } flatMap (ow =>
-  //       ow.map(w => writeHeader(w, llr)).getOrElse(done((), eofInput))),
-  //     empty = cont(startCSVOutput(filename)),
-  //     eof = done((), eofInput))
+  def startCSVOutput(filename: String):
+      Input[LatLonPlus] => IterateeT[LatLonPlus, IO, Unit] =
+    in => in(
+      el = llp => IterateeT.IterateeTMonadTrans[LatLonPlus].liftM {
+        IO(IoExceptionOr(new BufferedWriter(new FileWriter(filename)))) >>=
+        { r =>
+          r.fold(
+            th => IO.putStrLn(s"ERROR: Failure opening output file: ${th.getMessage}").
+              map(_ => none[BufferedWriter]),
+            w => IO(w.some))
+        }
+      } flatMap (ow =>
+        ow.map(w => writeHeader(w, llp)).getOrElse(done((), eofInput))),
+      empty = cont(startCSVOutput(filename)),
+      eof = done((), eofInput))
 
-  // def writeHeader(writer: BufferedWriter, llr: LatLonResult):
-  //     IterateeT[LatLonResult, IO, Unit] =
-  //   IterateeT.IterateeTMonadTrans[LatLonResult].liftM {
-  //     llr.fold[IO[Option[BufferedWriter]]](
-  //       _ => IO(none),
-  //       ll => IO(IoExceptionOr {
-  //         writer.write(toHeader(ll))
-  //         writer.newLine()
-  //         writer.write(toLatLonCSV(ll))
-  //         writer.newLine()
-  //       }) >>= { r =>
-  //         r.fold(
-  //           th => IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
-  //             thenClose(writer),
-  //           _ => IO(writer.some))
-  //       })
-  //   } flatMap (ow => writeRecords(ow))
+  def writeHeader(writer: BufferedWriter, llp: LatLonPlus):
+      IterateeT[LatLonPlus, IO, Unit] =
+    IterateeT.IterateeTMonadTrans[LatLonPlus].liftM {
+      IO(IoExceptionOr {
+        val header = toHeader(llp)
+        writer.write(header)
+        writer.newLine()
+        val rec = toLatLonCSV(llp)
+        writer.write(rec)
+        writer.newLine()
+      }) >>= { r =>
+        r.fold(
+          th => IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
+            thenClose(writer),
+          _ => IO(writer.some))
+      }
+    } flatMap (ow => writeRecords(ow))
 
-  // def thenClose(writer: BufferedWriter): IO[Option[BufferedWriter]] = {
-  //   (IO(IoExceptionOr(writer.close())) >>= { r =>
-  //     r.fold(
-  //       th => IO.putStrLn(s"ERROR: Failed to close output file:${th.getMessage}"),
-  //       _ => IO(()))
-  //   }) >> IO(none[BufferedWriter])
-  // }
+  def thenClose(writer: BufferedWriter): IO[Option[BufferedWriter]] = {
+    (IO(IoExceptionOr(writer.close())) >>= { r =>
+      r.fold(
+        th => IO.putStrLn(s"ERROR: Failed to close output file:${th.getMessage}"),
+        _ => IO(()))
+    }) >> IO(none[BufferedWriter])
+  }
 
-  // def writeRecords(writer: Option[BufferedWriter]):
-  //     IterateeT[LatLonResult, IO, Unit] =
-  //   foldM[LatLonResult, IO, Option[BufferedWriter]](writer) { (ow, llr) =>
-  //     llr.fold(
-  //       th => {
-  //         (OptionT(IO(ow)) flatMap { w =>
-  //           OptionT {
-  //             IO.putStrLn(s"ERROR: Failure reading input file: ${th.getMessage}") >>
-  //             thenClose(w)
-  //           }
-  //         }).run
-  //       },
-  //       ll => {
-  //         (OptionT(IO(ow)) flatMap { w =>
-  //           OptionT {
-  //             IO(IoExceptionOr {
-  //               w.write(toLatLonCSV(ll))
-  //               w.newLine()
-  //             }) >>= { r =>
-  //               r.fold(
-  //                 th => {
-  //                   IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
-  //                   thenClose(w)
-  //                 },
-  //                 _ => IO(ow))
-  //             }
-  //           }
-  //         }).run
-  //       })
-  //   } flatMap { ow =>
-  //     IterateeT.IterateeTMonadTrans[LatLonResult].liftM {
-  //       ow.map(w => thenClose(w) >> IO(())).getOrElse(IO(()))
-  //     }
-  //   }
+  def writeRecords(writer: Option[BufferedWriter]):
+      IterateeT[LatLonPlus, IO, Unit] =
+    foldM[LatLonPlus, IO, Option[BufferedWriter]](writer) { (ow, llp) =>
+      (OptionT(IO(ow)) flatMap { w =>
+        OptionT {
+          IO(IoExceptionOr {
+            val rec = toLatLonCSV(llp)
+            w.write(rec)
+            w.newLine()
+          }) >>= { r =>
+            r.fold(
+              th => {
+                IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
+                thenClose(w)
+              },
+              _ => IO(ow))
+          }
+        }
+      }).run
+    } flatMap { ow =>
+      IterateeT.IterateeTMonadTrans[LatLonPlus].liftM {
+        ow.map(w => thenClose(w) >> IO(())).getOrElse(IO(()))
+      }
+    }
 
-  // def writeCSV(filename: String): IterateeT[LatLonResult, IO, Unit] =
-  //   cont(startCSVOutput(filename))
+  def writeCSV(filename: String): IterateeT[LatLonPlus, IO, Unit] =
+    cont(startCSVOutput(filename))
 }
