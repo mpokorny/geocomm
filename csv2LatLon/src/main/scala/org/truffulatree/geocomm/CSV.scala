@@ -194,7 +194,7 @@ object CSV {
               k(elInput(
                 (recNum,
                   SortedMap(
-                    cols.zip(str.split(",")):_*)(
+                    cols.zip(splitAll(str, ',')):_*)(
                     order.toScalaOrdering)))) >>==
               doneOr(loop(recNum + 1, cols, order))
             },
