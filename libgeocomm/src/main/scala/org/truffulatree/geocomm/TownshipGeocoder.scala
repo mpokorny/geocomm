@@ -40,10 +40,13 @@ abstract class TownshipGeoCoder[F[_]] {
 
   protected lazy val http = {
     val result = Http.configure { builder => builder.setRequestTimeout(2000) }
+    // Shutting down the Http instance is required to prevent a hang on exit.
     Http.shutdown()
     result
   }
 
+  // Unfortunately, due to a bug in Dispatch (or its dependencies), Http
+  // instances need to be shut down to avoid a hang on program exit.
   def shutdown(): Unit = {
     http.shutdown()
   }

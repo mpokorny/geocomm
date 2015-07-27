@@ -2,7 +2,7 @@ package org.truffulatree.geocomm
 
 import scala.language.higherKinds
 import java.io.{ BufferedReader, FileReader, Writer, BufferedWriter, FileWriter }
-import scala.collection.SortedMap
+import scala.collection.immutable.SortedMap
 import scala.xml
 import scalaz._
 import iteratee._
@@ -170,7 +170,9 @@ object CSV {
           in(
             el = str => {
               val cols = str.split(",").toList
-              val ordering = Order.orderBy(cols.zipWithIndex.toMap)
+              val missing =
+                (Columns.values.map(_.toString) -- cols.toSet).toList
+              val ordering = Order.orderBy((cols ++ missing).zipWithIndex.toMap)
               cont(step(0, cols, ordering)(k))
             },
             empty = cont(step0(k)),
