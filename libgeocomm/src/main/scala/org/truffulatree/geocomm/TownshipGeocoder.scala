@@ -188,7 +188,8 @@ class MeteredTownshipGeoCoder[F[_]](
     fthtrs.map { thtrs =>
       thtrs.fold(
         ths => -\/(ths),
-        trs => \/-(prev >> request(trs)))
+        trs => \/-((prev fallbackTo Future.successful(<empty/>)) >>
+          request(trs)))
     }
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
