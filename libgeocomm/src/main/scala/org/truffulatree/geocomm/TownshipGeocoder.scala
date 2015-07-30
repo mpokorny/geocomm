@@ -34,7 +34,7 @@ abstract class TownshipGeoCoder[F[_]] {
       trs.rangeFraction.id.shows,
       trs.rangeDirection.toString,
       trs.sectionNumber.id.shows,
-      trs.sectionDivision.reverse.mkString(""),
+      trs.sectionDivision.take(2).reverse.mkString(""),
       trs.townshipDuplicate.shows).mkString(",")
   }
 
