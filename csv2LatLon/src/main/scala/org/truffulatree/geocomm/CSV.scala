@@ -86,7 +86,7 @@ object CSV {
       Validation[Throwable, List[Directions.Corner]] =
     Validation.fromTryCatchNonFatal {
       record(SectionDivision.toString).
-        map(d => Directions.division(d.toString.toInt - 1)).reverse.toList
+        map(d => Directions.division(d.toString.toInt - 1)).toList
     }
 
   def getTownshipDuplicate(record: CSVRecord): Validation[Throwable, Int] =
