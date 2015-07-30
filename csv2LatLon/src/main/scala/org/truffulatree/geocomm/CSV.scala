@@ -209,13 +209,12 @@ object CSV {
   type RecPlus[A] = (Int, CSVRecord, A)
   type Parsed = RecPlus[ThrowablesOr[TRS]]
 
-  implicit object ReqPlusTraverse1
-      extends Traverse1[({ type F[X] = RecPlus[X] })#F] {
+  implicit object ReqPlusTraverse1 extends Traverse1[RecPlus] {
     override def traverse1Impl[G[_], A, B](ra: RecPlus[A])(f: (A) => G[B])(
       implicit arg0: Apply[G]): G[RecPlus[B]] =
       ra match {
         case (recNum, rec, a) =>
-          f(a) map (b => (recNum, rec, b))
+          arg0.map(f(a))(b => (recNum, rec, b))
       }
 
     override def foldMapRight1[A, B](ra: RecPlus[A])(z: (A) ⇒ B)(
