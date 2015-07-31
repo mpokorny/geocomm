@@ -18,15 +18,16 @@ object TaskCompletion {
 
     def addTask(gttha: G[Task[ThrowablesOr[A]]]): IO[Completions[A,G]] =
       IO(synchronized {
-        pending.modify(p => IO((p + 1, ()))) map { _ =>
-          gttha.map(_.runAsync {
-            case \/-(tha) =>
-              unsafeAddValue((gttha map (_ => tha)).some)
-            case -\/(f) =>
-              unsafeAddValue((gttha map (_ => NonEmptyList(f).left[A])).some)
-          })
-        }
-      }).join map (_ => this)
+        pending.modify(p => IO((p + 1, ())))
+      }).join.map { _ =>
+        gttha.map(_.runAsync {
+          case \/-(tha) =>
+            unsafeAddValue((gttha map (_ => tha)).some)
+          case -\/(f) =>
+            unsafeAddValue((gttha map (_ => NonEmptyList(f).left[A])).some)
+        })
+        this
+      }
 
     private def unsafeAddValue(v: Option[G[ThrowablesOr[A]]]): Unit =
       IO(synchronized {
