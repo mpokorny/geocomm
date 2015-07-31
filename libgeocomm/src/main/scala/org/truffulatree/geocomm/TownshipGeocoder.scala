@@ -1,14 +1,16 @@
 package org.truffulatree.geocomm
 
 import scala.language.higherKinds
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
+import scala.util.{ Failure => SFailure, Success => SSuccess }
 import java.util.Date
 import scala.xml
 import scalaz._
 import iteratee._
 import iteratee.{ Iteratee => I }
 import effect._
+import concurrent._
 import Scalaz._
 import dispatch._
 
@@ -54,8 +56,13 @@ abstract class TownshipGeoCoder[F[_]] {
   protected def query(trs: TRS) =
     townshipGeoCoder <<? Map("TRS" -> trsProps(trs))
 
-  def request(trs: TRS): Future[xml.Elem] =
-    http(query(trs) OK as.xml.Elem)
+  def request(trs: TRS): Task[xml.Elem] =
+    Task.async { cb =>
+      http(query(trs) OK as.xml.Elem) onComplete {
+        case SSuccess(e) => cb(e.right)
+        case SFailure(th) => cb(th.left)
+      }
+    }
 
   def getDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
   if (elem.label == "TownshipGeocoderResult")
@@ -145,14 +152,13 @@ abstract class TownshipGeoCoder[F[_]] {
 
   def projectLatLon: EnumerateeT[F[Requested], F[LatLonResponse], IO] =
     Iteratee.map { freq =>
-      freq map { thfel =>
-        thfel.fold(
-          ths => Future.successful(ths.left),
-          fel => fel flatMap { el =>
-            Future.successful(getLatLon(el).leftMap(NonEmptyList(_)))
-          } recoverWith {
-            case th: Exception =>
-              Future.successful(NonEmptyList(th).left)
+      freq map { thtel =>
+        thtel.fold(
+          ths => Task.now(ths.left),
+          tel => tel flatMap { el =>
+            Task.now(getLatLon(el).leftMap(NonEmptyList(_)))
+          } handle {
+            case th: Exception => NonEmptyList(th).left
           })
       }
     }
@@ -165,8 +171,8 @@ abstract class TownshipGeoCoder[F[_]] {
 }
 
 object TownshipGeoCoder {
-  type Requested = ThrowablesOr[Future[xml.Elem]]
-  type LatLonResponse = Future[ThrowablesOr[(Double, Double)]]
+  type Requested = ThrowablesOr[Task[xml.Elem]]
+  type LatLonResponse = Task[ThrowablesOr[(Double, Double)]]
 
   def resource[F[_], G <: TownshipGeoCoder[F]] =
     new Resource[G] {
@@ -183,22 +189,21 @@ class MeteredTownshipGeoCoder[F[_]](
 
   import TownshipGeoCoder._
 
-  def makeRequestAfter(prev: Future[xml.Elem], fthtrs: F[ThrowablesOr[TRS]]):
+  def makeRequestAfter(prev: Task[xml.Elem], fthtrs: F[ThrowablesOr[TRS]]):
       F[Requested] =
     fthtrs.map { thtrs =>
       thtrs.fold(
         ths => -\/(ths),
-        trs => \/-((prev fallbackTo Future.successful(<empty/>)) >>
-          request(trs)))
+        trs => \/-((prev or Task.now(<empty/>)) >> request(trs)))
     }
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
     new EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] {
-      def loop[A](prev: Future[xml.Elem]) =
+      def loop[A](prev: Task[xml.Elem]) =
         step(prev).
           andThen(I.cont[F[ThrowablesOr[TRS]], IO, StepT[F[Requested], IO, A]])
 
-      def step[A](prev: Future[xml.Elem]):
+      def step[A](prev: Task[xml.Elem]):
           ((Input[F[Requested]] => IterateeT[F[Requested], IO, A]) =>
             Input[F[ThrowablesOr[TRS]]] =>
             IterateeT[F[ThrowablesOr[TRS]], IO, StepT[F[Requested], IO, A]]) =
@@ -216,7 +221,7 @@ class MeteredTownshipGeoCoder[F[_]](
         }
 
       override def apply[A] =
-        I.doneOr(loop(Future.successful(<empty/>)))
+        I.doneOr(loop(Task.now(<empty/>)))
     }
 }
 
