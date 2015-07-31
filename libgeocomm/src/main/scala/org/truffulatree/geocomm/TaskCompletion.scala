@@ -9,7 +9,7 @@ import concurrent._
 import effect._
 import Scalaz._
 
-object FutureCompletion {
+object TaskCompletion {
 
   private final case class Completions[A,G[_]:Traverse](
     pending: MVar[Int],
