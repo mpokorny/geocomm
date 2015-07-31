@@ -1,9 +1,6 @@
 package org.truffulatree.geocomm
 
-import scala.concurrent.{ ExecutionContext, Future }
-import scala.concurrent.duration._
-import ExecutionContext.Implicits.global
-import scala.util.{ Success, Failure }
+import scala.concurrent.ExecutionContext.Implicits.global
 import scalaz._
 import effect._
 import iteratee._
@@ -17,7 +14,7 @@ object Main extends SafeApp {
   type LatLonResponse = RecPlus[TownshipGeoCoder.LatLonResponse]
 
   implicit lazy val gcResource =
-    TownshipGeoCoder.resource[RecPlus,MeteredTownshipGeoCoder[RecPlus]]
+    TownshipGeoCoder.resource[RecPlus, MeteredTownshipGeoCoder[RecPlus]]
 
   override def runl(args: List[String]): IO[Unit] = {
     args.headOption map { arg0 =>
@@ -40,7 +37,7 @@ object Main extends SafeApp {
 
   def latLons(geocoder: TownshipGeoCoder[RecPlus], filename: String):
       IterateeT[RecPlus[ThrowablesOr[TRS]], IO, Chan[Option[LatLonResult]]] = {
-    FutureCompletion.collect[(Double,Double),RecPlus] %=
+    TaskCompletion.collect[(Double,Double),RecPlus] %=
     geocoder.requestLatLon &=
     trsRecords(filename)
   }
