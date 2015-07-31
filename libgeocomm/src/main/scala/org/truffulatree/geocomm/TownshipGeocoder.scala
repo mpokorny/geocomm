@@ -4,7 +4,6 @@ import scala.language.higherKinds
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.{ Failure => SFailure, Success => SSuccess }
-import java.util.Date
 import scala.xml
 import scalaz._
 import iteratee._
@@ -56,13 +55,15 @@ abstract class TownshipGeoCoder[F[_]] {
   protected def query(trs: TRS) =
     townshipGeoCoder <<? Map("TRS" -> trsProps(trs))
 
-  def request(trs: TRS): Task[xml.Elem] =
+  def request(trs: TRS): Task[xml.Elem] = {
+    val req = http(query(trs) OK as.xml.Elem)
     Task.async { cb =>
-      http(query(trs) OK as.xml.Elem) onComplete {
+      req onComplete {
         case SSuccess(e) => cb(e.right)
         case SFailure(th) => cb(th.left)
       }
     }
+  }
 
   def getDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
   if (elem.label == "TownshipGeocoderResult")
@@ -155,10 +156,8 @@ abstract class TownshipGeoCoder[F[_]] {
       freq map { thtel =>
         thtel.fold(
           ths => Task.now(ths.left),
-          tel => tel flatMap { el =>
-            Task.now(getLatLon(el).leftMap(NonEmptyList(_)))
-          } handle {
-            case th: Exception => NonEmptyList(th).left
+          tel => tel map { el =>
+            getLatLon(el).leftMap(NonEmptyList(_))
           })
       }
     }
@@ -189,39 +188,51 @@ class MeteredTownshipGeoCoder[F[_]](
 
   import TownshipGeoCoder._
 
-  def makeRequestAfter(prev: Task[xml.Elem], fthtrs: F[ThrowablesOr[TRS]]):
-      F[Requested] =
-    fthtrs.map { thtrs =>
+  def makeRequestAfter(prev: BooleanLatch, fthtrs: F[ThrowablesOr[TRS]]):
+      (F[Requested], BooleanLatch) = {
+    val req = fthtrs.map { thtrs =>
       thtrs.fold(
-        ths => -\/(ths),
-        trs => \/-((prev or Task.now(<empty/>)) >> request(trs)))
+        ths => (-\/(ths), prev),
+        trs => {
+          val next = BooleanLatch()
+          (\/-(
+            Task.fork {
+              for {
+                _ <- Task.now(prev.await())
+                req <- request(trs)
+                _ <- Task.now(next.release())
+              } yield req
+            }), next)
+        })
     }
+    (req map (_._1), req map (_._2) index(0) getOrElse prev)
+  }
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
     new EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] {
-      def loop[A](prev: Task[xml.Elem]) =
+      def loop[A](prev: BooleanLatch) =
         step(prev).
           andThen(I.cont[F[ThrowablesOr[TRS]], IO, StepT[F[Requested], IO, A]])
 
-      def step[A](prev: Task[xml.Elem]):
+      def step[A](prev: BooleanLatch):
           ((Input[F[Requested]] => IterateeT[F[Requested], IO, A]) =>
             Input[F[ThrowablesOr[TRS]]] =>
             IterateeT[F[ThrowablesOr[TRS]], IO, StepT[F[Requested], IO, A]]) =
         k => in => {
           in(
             el = fthtrs => {
-              val req = makeRequestAfter(prev, fthtrs)
-              val reqf = req.index(0).map(_.fold(
-                _ => prev,
-                identity)).getOrElse(prev)
-              k(I.elInput(req)) >>== I.doneOr(loop(reqf))
+              val (req, latch) = makeRequestAfter(prev, fthtrs)
+              k(I.elInput(req)) >>== I.doneOr(loop(latch))
             },
             empty = I.cont(step(prev)(k)),
             eof = I.done(I.scont(k), I.emptyInput))
         }
 
-      override def apply[A] =
-        I.doneOr(loop(Task.now(<empty/>)))
+      override def apply[A] = {
+        val latch = BooleanLatch()
+        latch.release()
+        I.doneOr(loop(latch))
+      }
     }
 }
 
