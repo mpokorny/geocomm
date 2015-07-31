@@ -1,28 +1,34 @@
 package org.truffulatree.geocomm
 
 import scala.language.higherKinds
-import scala.concurrent.{ ExecutionContext, Future, blocking }
-import scala.util.{ Failure, Success }
+import scala.concurrent.ExecutionContext
 import scalaz._
 import iteratee._
 import iteratee.{ Iteratee => I }
-import concurrent.{ MVar, Chan, BooleanLatch }
+import concurrent._
 import effect._
 import Scalaz._
 
 object FutureCompletion {
 
-  private final case class Completions[A,G[_]](
+  private final case class Completions[A,G[_]:Traverse](
     pending: MVar[Int],
     optLatch: MVar[Option[BooleanLatch]],
     chan: Chan[Option[G[ThrowablesOr[A]]]]) {
 
-    def addFuture: IO[Unit] =
+    def addTask(gttha: G[Task[ThrowablesOr[A]]]): IO[Completions[A,G]] =
       IO(synchronized {
-        pending.modify(p => IO((p + 1, ())))
-      }).join
+        pending.modify(p => IO((p + 1, ()))) map { _ =>
+          gttha.map(_.runAsync {
+            case \/-(tha) =>
+              unsafeAddValue((gttha map (_ => tha)).some)
+            case -\/(f) =>
+              unsafeAddValue((gttha map (_ => NonEmptyList(f).left[A])).some)
+          })
+        }
+      }).join map (_ => this)
 
-    def addValue(v: Option[G[ThrowablesOr[A]]]): IO[Unit] = 
+    private def unsafeAddValue(v: Option[G[ThrowablesOr[A]]]): Unit =
       IO(synchronized {
         chan.write(v) >>
         pending.modify(p => IO((p - 1, p == 1))) >>= { atZero =>
@@ -34,9 +40,9 @@ object FutureCompletion {
             }
           }
         }
-      }).join
+      }).join.unsafePerformIO
 
-    def await(implicit ec: ExecutionContext): IO[Future[Unit]] =
+    def addEndSentinel: IO[Chan[Option[G[ThrowablesOr[A]]]]] =
       IO(synchronized {
         pending.read >>= { np =>
           if (np > 0) {
@@ -44,56 +50,31 @@ object FutureCompletion {
               val latch = BooleanLatch()
               IO[(Option[BooleanLatch], BooleanLatch)]((latch.some, latch))
             } map { latch =>
-              Future(blocking { latch.await() })
+              Task(latch.await())
             }
           } else {
-            IO(Future.successful(()))
+            IO(Task.now(()))
           }
         }
-      }).join
+      }).join.map { t =>
+        t.runAsync { _ => unsafeAddValue(none) }
+        chan
+      }
   }
 
   def collect[A,G[_]:Traverse1](implicit ec: ExecutionContext):
-      IterateeT[G[Future[ThrowablesOr[A]]], IO, Chan[Option[G[ThrowablesOr[A]]]]] = {
+      IterateeT[G[Task[ThrowablesOr[A]]], IO, Chan[Option[G[ThrowablesOr[A]]]]] = {
 
     def step(io: IO[Completions[A,G]]):
-        (Input[G[Future[ThrowablesOr[A]]]]
-          => IterateeT[G[Future[ThrowablesOr[A]]], IO, Chan[Option[G[ThrowablesOr[A]]]]]) =
+        (Input[G[Task[ThrowablesOr[A]]]]
+          => IterateeT[G[Task[ThrowablesOr[A]]], IO, Chan[Option[G[ThrowablesOr[A]]]]]) =
       in => in(
-        el = { gftha =>
-          val newIo =
-            gftha.foldLeft(io) { (io1, ftha) =>
-              io1 >>= { completions =>
-                for {
-                  _ <- completions.addFuture
-                  _ <- IO {
-                    ftha onComplete {
-                      case Success(s) =>
-                        completions.addValue(gftha.map(_ => s).some).
-                          unsafePerformIO
-                      case Failure(f) =>
-                        completions.addValue(
-                          gftha.map(_ => NonEmptyList(f).left[A]).some).
-                          unsafePerformIO
-                    }
-                  }
-                } yield completions
-              }
-            }
-          I.cont(step(newIo))
+        el = { gttha =>
+          I.cont(step(io >>= (_.addTask(gttha))))
         },
         empty = I.cont(step(io)),
         eof = {
-          val newIo = io >>= { completions =>
-            for {
-              f <- completions.await
-              _ <- IO {
-                f onComplete { _ =>
-                  completions.addValue(none).unsafePerformIO
-                }
-              }
-            } yield completions.chan
-          }
+          val newIo = io >>= (_.addEndSentinel)
           IterateeT(newIo.map(r => I.sdone(r, I.emptyInput)))
         })
 
