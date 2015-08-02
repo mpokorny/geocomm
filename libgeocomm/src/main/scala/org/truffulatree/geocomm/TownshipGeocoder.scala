@@ -189,24 +189,27 @@ class MeteredTownshipGeoCoder[F[_]](
   import TownshipGeoCoder._
 
   def makeRequestAfter(prev: BooleanLatch, fthtrs: F[ThrowablesOr[TRS]]):
-      (F[Requested], BooleanLatch) = {
-    val req = fthtrs.map { thtrs =>
-      thtrs.fold(
-        ths => (-\/(ths), prev),
-        trs => {
-          val next = BooleanLatch()
-          (\/-(
-            Task.fork {
+      IO[(F[Requested], BooleanLatch)] =
+    for {
+      rn <- (fthtrs.map { thtrs =>
+        val io: IO[(Requested, BooleanLatch)] =
+          thtrs.fold(
+            ths => IO((-\/(ths), prev)),
+            trs => {
               for {
-                _ <- Task.now(prev.await())
-                req <- request(trs)
-                _ <- Task.now(next.release())
-              } yield req
-            }), next)
-        })
-    }
-    (req map (_._1), req map (_._2) index(0) getOrElse prev)
-  }
+                next <- IO(BooleanLatch())
+                t <- IO(Task.fork {
+                  for {
+                    _ <- Task.now(prev.await())
+                    req <- request(trs)
+                    _ <- Task.now(next.release())
+                  } yield req
+                })
+              } yield (\/-(t), next)
+            })
+        io
+      }).sequenceU
+    } yield (rn map (_._1), rn map (_._2) index(0) getOrElse prev)
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
     new EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] {
@@ -221,8 +224,11 @@ class MeteredTownshipGeoCoder[F[_]](
         k => in => {
           in(
             el = fthtrs => {
-              val (req, latch) = makeRequestAfter(prev, fthtrs)
-              k(I.elInput(req)) >>== I.doneOr(loop(latch))
+              IterateeT.IterateeTMonadTrans.liftM(makeRequestAfter(prev, fthtrs)).
+                flatMap {
+                  case (req, latch) =>
+                    k(I.elInput(req)) >>== I.doneOr(loop(latch))
+                }
             },
             empty = I.cont(step(prev)(k)),
             eof = I.done(I.scont(k), I.emptyInput))
@@ -236,7 +242,6 @@ class MeteredTownshipGeoCoder[F[_]](
     }
 }
 
-
 class UnlimitedTownshipGeoCoder[F[_]](
   implicit val tr: Traverse[F], 
   implicit val ec: ExecutionContext)
@@ -244,13 +249,27 @@ class UnlimitedTownshipGeoCoder[F[_]](
 
   import TownshipGeoCoder._
 
-  def makeRequest(fthtrs: F[ThrowablesOr[TRS]]): F[Requested] =
-    fthtrs.map { thtrs =>
-      thtrs.fold(
-        ths => -\/(ths),
-        trs => \/-(request(trs)))
-    }
+  def makeRequest(fthtrs: F[ThrowablesOr[TRS]]): IO[F[Requested]] = {
+    val fio: F[IO[Requested]] =
+      fthtrs.map { thtrs =>
+        thtrs.fold(
+          ths => IO(-\/(ths)),
+          trs => IO(\/-(request(trs))))
+      }
+    fio.sequenceU
+  }
+
+  def oneReq: IterateeT[F[ThrowablesOr[TRS]], IO, F[Requested]] = {
+    def step(s: Input[F[ThrowablesOr[TRS]]]):
+        IterateeT[F[ThrowablesOr[TRS]], IO, F[Requested]] =
+      s(el = fthtrs =>
+        IterateeT.IterateeTMonadTrans.liftM(makeRequest(fthtrs)).
+          flatMap (a => I.done(a, I.emptyInput)),
+        empty = I.cont(step),
+        eof = I.cont(step))
+    I.cont(step)
+  }
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
-    I.map(makeRequest(_))
+    oneReq.sequenceI
 }
