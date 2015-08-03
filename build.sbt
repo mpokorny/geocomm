@@ -17,7 +17,8 @@ lazy val commonSettings = Seq(
     "org.scalaz" %% "scalaz-core" % "7.1.3",
     "org.scalaz" %% "scalaz-iteratee" % "7.1.3",
     "org.scalaz" %% "scalaz-concurrent" % "7.1.3",
-    "org.scalaz" %% "scalaz-effect" % "7.1.3"),
+    "org.scalaz" %% "scalaz-effect" % "7.1.3",
+    "org.scalatest" %% "scalatest" % "2.2.4" % "test"),
   publishMavenStyle := true,
   publishTo <<= version { (v: String) =>
     val nexus = "https://oss.sonatype.org/"
