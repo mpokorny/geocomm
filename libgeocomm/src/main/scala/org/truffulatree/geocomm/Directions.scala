@@ -16,19 +16,27 @@ object Directions {
 
   val ns: PartialFunction[String, NS] = {
     case "N" => North
+    case "n" => North
     case "S" => South
+    case "s" => South
   }
 
   val ew: PartialFunction[String, EW] = {
     case "E" => East
+    case "e" => East
     case "W" => West
+    case "w" => West
   }
 
   val corner: PartialFunction[String, Corner] = {
     case "NW" => NorthWest
+    case "nw" => NorthWest
     case "NE" => NorthEast
+    case "ne" => NorthEast
     case "SE" => SouthEast
+    case "se" => SouthEast
     case "SW" => SouthWest
+    case "sw" => SouthWest
   }
 
   def apply(str: String): D =
