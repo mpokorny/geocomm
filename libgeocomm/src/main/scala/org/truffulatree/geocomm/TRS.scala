@@ -1,32 +1,82 @@
 package org.truffulatree.geocomm
 
+import scalaz._
+import Scalaz._
 
 case class TRS(
   state: States.State, 
   principalMeridian: PrincipalMeridians.PM,
   townshipNumber: Int,
-  townshipFraction: TRS.Fractions.Fraction,
+  townshipFraction: TRS.Fraction,
   townshipDirection: Directions.NS,
   rangeNumber: Int,
-  rangeFraction: TRS.Fractions.Fraction,
+  rangeFraction: TRS.Fraction,
   rangeDirection: Directions.EW,
-  sectionNumber: TRS.Sections.Section,
+  sectionNumber: TRS.Section,
   sectionDivision: List[Directions.Corner], // most to least significant
   townshipDuplicate: Int)
 
 object TRS {
-  object Fractions extends Enumeration {
-    type Fraction = Value
-    val Zero, One, Two, Three = Value
+
+  sealed trait FractionT
+
+  type Fraction = Int @@ FractionT
+
+  def Fraction: PartialFunction[Int, Fraction] = {
+    case (i) if FractionEnum.minVal <= i && i <= FractionEnum.maxVal =>
+      Tag[Int, FractionT](i)
   }
 
-  object Sections extends Enumeration(1) {
-    type Section = Value
-    val One, Two, Three, Four, Five, Six = Value
-    val Seven, Eight, Nine, Ten, Eleven, Twelve = Value
-    val Thirteen, Fourteen, Fifteen, Sixteen, Seventeen, Eighteen = Value
-    val Nineteen, Twenty, TwentyOne, TwentyTwo, TwentyThree, TwentyFour = Value
-    val TwentyFive, TwentySix, TwentySeven, TwentyEight, TwentyNine, Thirty = Value
-    val ThirtyOne, ThirtyTwo, ThirtyThree, ThirtyFour, ThirtyFive, ThirtySix = Value
+  implicit object FractionEnum extends Enum[Fraction] {
+
+    val minVal = 0
+
+    val maxVal = 3
+
+    private val range = maxVal - minVal + 1
+
+    override def order(x: Fraction, y: Fraction): Ordering =
+      Tag.unwrap(x) ?|? Tag.unwrap(y)
+
+    override def pred(a: Fraction): Fraction =
+      Fraction((Tag.unwrap(a) - minVal + range - 1) % range + minVal)
+
+    override def succ(a: Fraction): Fraction =
+      Fraction((Tag.unwrap(a) - minVal + 1) % range + minVal)
+
+    override def min: Option[Fraction] = Fraction(minVal).some
+
+    override def max: Option[Fraction] = Fraction(maxVal).some
+  }
+
+  sealed trait SectionT
+
+  type Section = Int @@ SectionT
+
+  def Section: PartialFunction[Int, Section] = {
+    case (i) if SectionEnum.minVal <= i && i <= SectionEnum.maxVal =>
+      Tag[Int, SectionT](i)
+  }
+
+  implicit object SectionEnum extends Enum[Section] {
+
+    val minVal = 1
+
+    val maxVal = 36
+
+    private val range = maxVal - minVal + 1
+
+    override def order(x: Section, y: Section): Ordering =
+      Tag.unwrap(x) ?|? Tag.unwrap(y)
+
+    override def pred(a: Section): Section =
+      Section((Tag.unwrap(a) - minVal + range - 1) % range + minVal)
+
+    override def succ(a: Section): Section =
+      Section((Tag.unwrap(a) - minVal + 1) % range + minVal)
+
+    override def min: Option[Section] = Section(minVal).some
+
+    override def max: Option[Section] = Section(maxVal).some
   }
 }
