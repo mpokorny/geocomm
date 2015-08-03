@@ -59,9 +59,9 @@ object CSV {
     Validation.fromTryCatchNonFatal(record(field.toString).toInt)
 
   def getTRSFraction(record: CSVRecord, field: Column):
-      Validation[Throwable, TRS.Fractions.Fraction] =
+      Validation[Throwable, TRS.Fraction] =
     Validation.fromTryCatchNonFatal {
-      TRS.Fractions(record.get(field.toString).map(_.toInt) getOrElse 0)
+      TRS.Fraction(record.get(field.toString).map(_.toInt) getOrElse 0)
     }
 
   def getTownshipDirection(record: CSVRecord):
@@ -77,9 +77,9 @@ object CSV {
     }
 
   def getSectionNumber(record: CSVRecord):
-      Validation[Throwable, TRS.Sections.Section] =
+      Validation[Throwable, TRS.Section] =
     Validation.fromTryCatchNonFatal {
-      TRS.Sections(record(SectionNumber.toString).toInt)
+      TRS.Section(record(SectionNumber.toString).toInt)
     }
 
   def getSectionDivision(record: CSVRecord):

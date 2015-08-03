@@ -29,12 +29,12 @@ abstract class TownshipGeoCoder[F[_]] {
       trs.state.toString,
       trs.principalMeridian.id.shows,
       trs.townshipNumber.shows,
-      trs.townshipFraction.id.shows,
+      Tag.unwrap(trs.townshipFraction).shows,
       trs.townshipDirection.toString,
       trs.rangeNumber.shows,
-      trs.rangeFraction.id.shows,
+      Tag.unwrap(trs.rangeFraction).shows,
       trs.rangeDirection.toString,
-      trs.sectionNumber.id.shows,
+      Tag.unwrap(trs.sectionNumber).shows,
       trs.sectionDivision.take(2).reverse.mkString(""),
       trs.townshipDuplicate.shows).mkString(",")
   }
@@ -67,14 +67,14 @@ abstract class TownshipGeoCoder[F[_]] {
 
   def getDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
   if (elem.label == "TownshipGeocoderResult")
-    \/.fromTryCatchNonFatal {
+    (\/.fromTryCatchNonFatal {
       (elem \ "CompletionStatus").text match {
         case "false" =>
           (new Exception((elem \ "Message").text)).left
         case "true" =>
           xml.XML.loadString((elem \ "Data").text).right
       }
-    } flatMap (identity)
+    }).join
   else (new Exception("Unexpected response")).left
 
   def parseRss: (xml.Elem) => \/[Throwable, RSSChannel] =
