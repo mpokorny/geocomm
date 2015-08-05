@@ -6,11 +6,17 @@ scala:
 jdk:
   - openjdk7
 
+script:
+  - sbt ++$TRAVIS_SCALA_VERSION clean coverage test
+  - sbt ++$TRAVIS_SCALA_VERSION coverageReport
+  - sbt ++$TRAVIS_SCALA_VERSION coverageAggregate
+  - sbt ++$TRAVIS_SCALA_VERSION codacyCoverage
+
 cache:
   directories:
     - $HOME/.ivy2/cache
     - $HOME/.sbt/boot
 
 before_cache:
-  - find $HOME/.sbt -name "*.lock" | xargs -rm
-  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs -rm
+  - find $HOME/.sbt -name "*.lock" | xargs rm -f
+  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm -f
