@@ -39,8 +39,12 @@ abstract class TownshipGeoCoder[F[_]] {
       trs.townshipDuplicate.shows).mkString(",")
   }
 
+  val requestTimeout = 2000 // ms
+
   protected lazy val http = {
-    val result = Http.configure { builder => builder.setRequestTimeout(2000) }
+    val result = Http.configure { builder =>
+      builder.setRequestTimeout(requestTimeout)
+    }
     // Shutting down the Http instance is required to prevent a hang on exit.
     Http.shutdown()
     result
@@ -173,7 +177,7 @@ object TownshipGeoCoder {
   type Requested = ThrowablesOr[Task[xml.Elem]]
   type LatLonResponse = Task[ThrowablesOr[(Double, Double)]]
 
-  def resource[F[_], G <: TownshipGeoCoder[F]] =
+  def resource[F[_], G <: TownshipGeoCoder[F]]: Resource[G] =
     new Resource[G] {
       override def close(g: G): IO[Unit] = {
         IO(g.shutdown())
@@ -182,7 +186,7 @@ object TownshipGeoCoder {
 }
 
 class MeteredTownshipGeoCoder[F[_]](
-  implicit val tr: Traverse[F], 
+  implicit val tr: Traverse[F],
   implicit val ec: ExecutionContext)
     extends TownshipGeoCoder[F] {
 
@@ -209,7 +213,11 @@ class MeteredTownshipGeoCoder[F[_]](
             })
         io
       }).sequenceU
-    } yield (rn map (_._1), rn map (_._2) index(0) getOrElse prev)
+    } yield {
+      val req = rn map (_._1)
+      val latch = rn map (_._2) index(0) getOrElse prev
+      (req, latch)
+    }
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
     new EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] {
@@ -224,8 +232,8 @@ class MeteredTownshipGeoCoder[F[_]](
         k => in => {
           in(
             el = fthtrs => {
-              IterateeT.IterateeTMonadTrans.liftM(makeRequestAfter(prev, fthtrs)).
-                flatMap {
+              IterateeT.IterateeTMonadTrans.liftM(
+                makeRequestAfter(prev, fthtrs)).flatMap {
                   case (req, latch) =>
                     k(I.elInput(req)) >>== I.doneOr(loop(latch))
                 }
@@ -243,7 +251,7 @@ class MeteredTownshipGeoCoder[F[_]](
 }
 
 class UnlimitedTownshipGeoCoder[F[_]](
-  implicit val tr: Traverse[F], 
+  implicit val tr: Traverse[F],
   implicit val ec: ExecutionContext)
     extends TownshipGeoCoder[F] {
 

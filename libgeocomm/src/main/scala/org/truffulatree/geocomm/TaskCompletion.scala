@@ -11,7 +11,7 @@ import Scalaz._
 
 object TaskCompletion {
 
-  private final case class Completions[A,G[_]:Traverse](
+  private[this] final case class Completions[A,G[_]:Traverse](
     pending: MVar[Int],
     optLatch: MVar[Option[BooleanLatch]],
     chan: Chan[Option[G[ThrowablesOr[A]]]]) {
@@ -29,7 +29,7 @@ object TaskCompletion {
         this
       }
 
-    private def unsafeAddValue(v: Option[G[ThrowablesOr[A]]]): Unit =
+    private[this] def unsafeAddValue(v: Option[G[ThrowablesOr[A]]]): Unit =
       IO(synchronized {
         chan.write(v) >>
         pending.modify(p => IO((p - 1, p == 1))) >>= { atZero =>

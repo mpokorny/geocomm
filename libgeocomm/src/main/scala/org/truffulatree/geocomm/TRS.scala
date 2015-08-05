@@ -4,7 +4,7 @@ import scalaz._
 import Scalaz._
 
 case class TRS(
-  state: States.State, 
+  state: States.State,
   principalMeridian: PrincipalMeridians.PM,
   townshipNumber: Int,
   townshipFraction: TRS.Fraction,

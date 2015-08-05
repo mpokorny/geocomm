@@ -11,7 +11,8 @@ object ChanEnumerator {
   def apply[A](chan: Chan[Option[A]]): EnumeratorT[A, IO] = {
 
     def readOne[E]: IterateeT[E, IO, Option[A]] =
-      IterateeT[E, IO, Option[A]](chan.read.map(oa => I.sdone(oa, I.emptyInput)))
+      IterateeT[E, IO, Option[A]](
+        chan.read.map(oa => I.sdone(oa, I.emptyInput)))
 
     new EnumeratorT[A, IO] {
       override def apply[B]: StepT[A, IO, B] => IterateeT[A, IO, B] =

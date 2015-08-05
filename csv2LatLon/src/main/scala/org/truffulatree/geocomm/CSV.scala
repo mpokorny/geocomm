@@ -1,7 +1,7 @@
 package org.truffulatree.geocomm
 
 import scala.language.higherKinds
-import java.io.{ BufferedReader, FileReader, Writer, BufferedWriter, FileWriter }
+import java.io.{ BufferedReader, FileReader, BufferedWriter, FileWriter }
 import scala.collection.immutable.SortedMap
 import scala.xml
 import scalaz._
@@ -11,6 +11,8 @@ import effect._
 import Scalaz._
 
 object CSV {
+
+  private[this] val comma = ","
 
   object Columns extends Enumeration {
     type Column = Value
@@ -120,13 +122,16 @@ object CSV {
         lazy val reader = r
         override def apply[A] = { (s: StepT[String, IO, A]) =>
           s.mapCont { k =>
-            tryIO(IoExceptionOr(reader.readLine())).flatMap {
-              case IoExceptionOr(null) => s.pointI
-              case IoExceptionOr(line) => k(elInput(line)) >>== apply[A]
+            tryIO(IoExceptionOr(Option(reader.readLine()))).flatMap {
+              case IoExceptionOr(None) =>
+                s.pointI
+              case IoExceptionOr(Some(line)) =>
+                k(elInput(line)) >>== apply[A]
               case ioe @ _ => {
                 IterateeT.IterateeTMonadTrans[String] liftM {
                   ioe.fold(
-                    th => IO.putStrLn(s"Failure reading input file: ${th.getMessage}"),
+                    th => IO.putStrLn(
+                      s"Failure reading input file: ${th.getMessage}"),
                     _ => IO(())
                   )
                 } flatMap (_ => s.pointI)
@@ -146,7 +151,8 @@ object CSV {
               case ioe @ _ => {
                 IterateeT.IterateeTMonadTrans[String] liftM {
                   ioe.fold(
-                    th => IO.putStrLn(s"Failed to open input file: ${th.getMessage}"),
+                    th => IO.putStrLn(
+                      s"Failed to open input file: ${th.getMessage}"),
                     _ => IO(())
                   )
                 } flatMap (_ => s.pointI)
@@ -169,7 +175,7 @@ object CSV {
         k => in => {
           in(
             el = str => {
-              val cols = str.split(",").toList
+              val cols = str.split(comma).toList
               val missing =
                 (Columns.values.map(_.toString) -- cols.toSet).toList
               val ordering = Order.orderBy((cols ++ missing).zipWithIndex.toMap)
@@ -241,14 +247,17 @@ object CSV {
         "",
         "",
         s""""${ths.map(_.getMessage).shows.filterNot(_ == '"')}""""),
-      a => List(a._1.shows, a._2.shows, ""))
+      a => {
+        val (lat, lon) = a
+        List(lat.shows, lon.shows, "")
+      })
     val newRec = rec.values.toList ++ newCols
-    newRec.mkString(",")
+    newRec.mkString(comma)
   }
 
   def toHeader(recp: RecPlus[_]): String = {
     val (_, rec, _) = recp
-    (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(s",")
+    (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(comma)
   }
 
   type LatLonPlus = RecPlus[ThrowablesOr[(Double,Double)]]
@@ -260,7 +269,8 @@ object CSV {
         IO(IoExceptionOr(new BufferedWriter(new FileWriter(filename)))) >>=
         { r =>
           r.fold(
-            th => IO.putStrLn(s"ERROR: Failure opening output file: ${th.getMessage}").
+            th => IO.putStrLn(
+              s"ERROR: Failure opening output file: ${th.getMessage}").
               map(_ => none[BufferedWriter]),
             w => IO(w.some))
         }
@@ -281,7 +291,8 @@ object CSV {
         writer.newLine()
       }) >>= { r =>
         r.fold(
-          th => IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
+          th => IO.putStrLn(
+            s"ERROR: Failed to write to output file: ${th.getMessage}") >>
             thenClose(writer),
           _ => IO(writer.some))
       }
@@ -290,7 +301,8 @@ object CSV {
   def thenClose(writer: BufferedWriter): IO[Option[BufferedWriter]] = {
     (IO(IoExceptionOr(writer.close())) >>= { r =>
       r.fold(
-        th => IO.putStrLn(s"ERROR: Failed to close output file:${th.getMessage}"),
+        th => IO.putStrLn(
+          s"ERROR: Failed to close output file:${th.getMessage}"),
         _ => IO(()))
     }) >> IO(none[BufferedWriter])
   }
@@ -307,7 +319,8 @@ object CSV {
           }) >>= { r =>
             r.fold(
               th => {
-                IO.putStrLn(s"ERROR: Failed to write to output file: ${th.getMessage}") >>
+                IO.putStrLn(
+                  s"ERROR: Failed to write to output file: ${th.getMessage}") >>
                 thenClose(w)
               },
               _ => IO(ow))
