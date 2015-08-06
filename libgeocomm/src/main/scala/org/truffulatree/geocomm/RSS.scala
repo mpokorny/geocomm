@@ -15,14 +15,18 @@ case class RSSChannel(
   title: String,
   link: Option[URI],
   description: Option[String],
-  pubDate: Option[String], // should be Date
+  // pubDate type should contain a "Date", but geocommunicator service returns
+  // dates in non-RFC 822 format
+  pubDate: Option[String],
   content: Seq[RSSItem])
 
 case class RSSItem(
   title: String,
   link: Option[URI],
   description: Option[String],
-  pubDate: Option[String], // should be date
+  // pubDate type should contain a "Date", but geocommunicator service returns
+  // dates in non-RFC 822 format
+  pubDate: Option[String],
   content: xml.NodeSeq)
 
 object RSS {
