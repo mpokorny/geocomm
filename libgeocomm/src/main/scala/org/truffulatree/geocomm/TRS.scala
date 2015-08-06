@@ -33,7 +33,7 @@ object TRS {
 
     val maxVal = 3
 
-    private val range = maxVal - minVal + 1
+    private[this] val range = maxVal - minVal + 1
 
     override def order(x: Fraction, y: Fraction): Ordering =
       Tag.unwrap(x) ?|? Tag.unwrap(y)
@@ -64,7 +64,7 @@ object TRS {
 
     val maxVal = 36
 
-    private val range = maxVal - minVal + 1
+    private[this] val range = maxVal - minVal + 1
 
     override def order(x: Section, y: Section): Ordering =
       Tag.unwrap(x) ?|? Tag.unwrap(y)

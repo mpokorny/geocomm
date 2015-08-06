@@ -64,11 +64,13 @@ object TaskCompletion {
   }
 
   def collect[A,G[_]:Traverse1](implicit ec: ExecutionContext):
-      IterateeT[G[Task[ThrowablesOr[A]]], IO, Chan[Option[G[ThrowablesOr[A]]]]] = {
+      IterateeT[G[Task[ThrowablesOr[A]]], IO,
+        Chan[Option[G[ThrowablesOr[A]]]]] = {
 
     def step(io: IO[Completions[A,G]]):
         (Input[G[Task[ThrowablesOr[A]]]]
-          => IterateeT[G[Task[ThrowablesOr[A]]], IO, Chan[Option[G[ThrowablesOr[A]]]]]) =
+          => IterateeT[G[Task[ThrowablesOr[A]]], IO,
+            Chan[Option[G[ThrowablesOr[A]]]]]) =
       in => in(
         el = { gttha =>
           I.cont(step(io >>= (_.addTask(gttha))))

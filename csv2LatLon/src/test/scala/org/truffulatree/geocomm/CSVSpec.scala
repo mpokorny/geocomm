@@ -31,11 +31,12 @@ class CSVSpec extends UnitSpec {
     }
 
     "default to NM for the 'State' field value" in {
-      CSV.getState(basicRecord - "State") should equal (Success(States.NewMexico))
+      (CSV.getState(basicRecord - Columns.State.toString) should equal
+        (Success(States.NewMexico)))
     }
 
     "convert 'NewMexico' as the 'Principal Meridian' to New Mexico PM" in {
-      (CSV.getPrincipalMeridian(basicRecord) should 
+      (CSV.getPrincipalMeridian(basicRecord) should
         equal (Success(PrincipalMeridians.NewMexico)))
     }
 
@@ -45,7 +46,7 @@ class CSVSpec extends UnitSpec {
     }
 
     "default to New Mexico PM for the 'Principal Meridian' field value" in {
-      (CSV.getState(basicRecord - "Principal Meridian")
+      (CSV.getState(basicRecord - Columns.PrincipalMeridian.toString)
         should equal (Success(States.NewMexico)))
     }
 
@@ -53,7 +54,7 @@ class CSVSpec extends UnitSpec {
       val range = 0 to 3
       ((range map (
         i => CSV.getTRSFraction(
-          basicRecord + ("Township Fraction" -> i.toString),
+          basicRecord + (Columns.TownshipFraction.toString -> i.toString),
           CSV.Columns.TownshipFraction)))
         should contain theSameElementsInOrderAs
         (range map (i => Success(TRS.Fraction(i)))))
@@ -61,7 +62,7 @@ class CSVSpec extends UnitSpec {
 
     "default to 0 for the 'Township Fraction' field" in {
       CSV.getTRSFraction(
-        basicRecord - "Township Fraction", 
+        basicRecord - Columns.TownshipFraction.toString,
         CSV.Columns.TownshipFraction) should equal (Success(TRS.Fraction(0)))
     }
   }

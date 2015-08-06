@@ -22,6 +22,8 @@ abstract class TownshipGeoCoder[F[_]] {
   val townshipGeoCoder = url(
     "http://www.geocommunicator.gov/TownshipGeoCoder/TownshipGeoCoder.asmx/GetLatLon")
 
+  val georssNamespace = "http://www.georss.org/georss"
+
   implicit val ec: ExecutionContext
 
   def trsProps(trs: TRS): String = {
@@ -105,7 +107,7 @@ abstract class TownshipGeoCoder[F[_]] {
 
   def parseLatLon: (RSSItem) => \/[Throwable, (Double, Double)] = ch =>
   (ch.content filter { node =>
-    node.label == "point" && node.namespace == "http://www.georss.org/georss"
+    node.label == "point" && node.namespace == georssNamespace
   } map { node =>
     \/.fromTryCatchNonFatal {
       node.text.split(' ').toList map (_.toDouble) match {
@@ -126,8 +128,7 @@ abstract class TownshipGeoCoder[F[_]] {
   def parseTownshipRangeSection:
       (RSSItem) => \/[Throwable, List[(Double, Double)]] = ch => {
     (ch.content filter { node =>
-      node.label == "polygon" &&
-      node.namespace == "http://www.georss.org/georss"
+      node.label == "polygon" && node.namespace == georssNamespace
     } map { node =>
       \/.fromTryCatchNonFatal {
         (node.text.split(',').toList map (_.toDouble) grouped(2) map {
@@ -195,7 +196,7 @@ class MeteredTownshipGeoCoder[F[_]](
   def makeRequestAfter(prev: BooleanLatch, fthtrs: F[ThrowablesOr[TRS]]):
       IO[(F[Requested], BooleanLatch)] =
     for {
-      rn <- (fthtrs.map { thtrs =>
+      fReqNext <- (fthtrs.map { thtrs =>
         val io: IO[(Requested, BooleanLatch)] =
           thtrs.fold(
             ths => IO((-\/(ths), prev)),
@@ -214,9 +215,9 @@ class MeteredTownshipGeoCoder[F[_]](
         io
       }).sequenceU
     } yield {
-      val req = rn map (_._1)
-      val latch = rn map (_._2) index(0) getOrElse prev
-      (req, latch)
+      val fReq = fReqNext map (rn => rn._1)
+      val next = fReqNext map (rn => rn._2) index(0) getOrElse prev
+      (fReq, next)
     }
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO] =
