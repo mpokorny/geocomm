@@ -39,81 +39,107 @@ object CSV {
   }
   import Columns._
 
-  type CSVRecord = SortedMap[String, String]
+  type Record = SortedMap[String, String]
 
-  def getState(record: CSVRecord): Validation[Throwable, States.State] =
-    Validation.fromTryCatchNonFatal {
-      States.withName(record.get(State.toString).getOrElse("NM"))
+  private[this] def convert[A](col: Column, va: => Validation[Throwable, A]):
+      Validation[Throwable, A] =
+    va leftMap { th =>
+      new RuntimeException(
+        s"Failed to convert $col field: ${th.getMessage}")
     }
 
-  def getPrincipalMeridian(record: CSVRecord):
-      Validation[Throwable, PrincipalMeridians.PM] = {
-    val pmCol = PrincipalMeridian.toString
-    if (!record.contains(pmCol)) {
+  def convertState(record: Record): Validation[Throwable, States.State] =
+    convert(
+      State,
       Validation.fromTryCatchNonFatal {
-        PrincipalMeridians.withName("NewMexico")
-      }
-    } else {
-      Validation.fromTryCatchNonFatal {
-        PrincipalMeridians(record(pmCol).toInt)
-      } ||| Validation.fromTryCatchNonFatal {
-        PrincipalMeridians.withName(record(pmCol))
-      }
-    }
-  }
+        States.withName(record.get(State.toString).getOrElse("NM"))
+      })
 
-  def getTRNumber(record: CSVRecord, field: Column):
+  def convertPrincipalMeridian(record: Record):
+      Validation[Throwable, PrincipalMeridians.PM] =
+    convert(
+      PrincipalMeridian,
+      {
+        val pmCol = PrincipalMeridian.toString
+        if (!record.contains(pmCol)) {
+          Validation.fromTryCatchNonFatal {
+            PrincipalMeridians.withName("NewMexico")
+          }
+        } else {
+          Validation.fromTryCatchNonFatal {
+            PrincipalMeridians(record(pmCol).toInt)
+          } ||| Validation.fromTryCatchNonFatal {
+            PrincipalMeridians.withName(record(pmCol))
+          }
+        }
+      })
+
+  def convertTRNumber(record: Record, field: Column):
       Validation[Throwable, Int] =
-    Validation.fromTryCatchNonFatal(record(field.toString).toInt)
+    convert(
+      field,
+      Validation.fromTryCatchNonFatal(record(field.toString).toInt)) 
 
-  def getTRSFraction(record: CSVRecord, field: Column):
+  def convertTRSFraction(record: Record, field: Column):
       Validation[Throwable, TRS.Fraction] =
-    Validation.fromTryCatchNonFatal {
-      TRS.Fraction(record.get(field.toString).map(_.toInt) getOrElse 0)
-    }
+    convert(
+      field,
+      Validation.fromTryCatchNonFatal {
+        TRS.Fraction(record.get(field.toString).map(_.toInt) getOrElse 0)
+      })
 
-  def getTownshipDirection(record: CSVRecord):
+  def convertTownshipDirection(record: Record):
       Validation[Throwable, Directions.NS] =
-    Validation.fromTryCatchNonFatal {
-      Directions.ns(record(TownshipDirection.toString))
-    }
+    convert(
+      TownshipDirection,
+      Validation.fromTryCatchNonFatal {
+        Directions.ns(record(TownshipDirection.toString))
+      })
 
-  def getRangeDirection(record: CSVRecord):
+  def convertRangeDirection(record: Record):
       Validation[Throwable, Directions.EW] =
-    Validation.fromTryCatchNonFatal {
-      Directions.ew(record(RangeDirection.toString))
-    }
+    convert(
+      RangeDirection,
+      Validation.fromTryCatchNonFatal {
+        Directions.ew(record(RangeDirection.toString))
+      })
 
-  def getSectionNumber(record: CSVRecord):
+  def convertSectionNumber(record: Record):
       Validation[Throwable, TRS.Section] =
-    Validation.fromTryCatchNonFatal {
-      TRS.Section(record(SectionNumber.toString).toInt)
-    }
+    convert(
+      SectionNumber,
+      Validation.fromTryCatchNonFatal {
+        TRS.Section(record(SectionNumber.toString).toInt)
+      })
 
-  def getSectionDivision(record: CSVRecord):
+  def convertSectionDivision(record: Record):
       Validation[Throwable, List[Directions.Corner]] =
-    Validation.fromTryCatchNonFatal {
-      record(SectionDivision.toString).
-        map(d => Directions.division(d.toString.toInt - 1)).toList
-    }
+    convert(
+      SectionDivision,
+      Validation.fromTryCatchNonFatal {
+        record(SectionDivision.toString).
+          map(d => Directions.division(d.toString.toInt - 1)).toList
+      })
 
-  def getTownshipDuplicate(record: CSVRecord): Validation[Throwable, Int] =
-    Validation.fromTryCatchNonFatal {
-      record.get(TownshipDuplicate.toString).map(_.toInt) getOrElse 0
-    }
+  def convertTownshipDuplicate(record: Record): Validation[Throwable, Int] =
+    convert(
+      TownshipDuplicate,
+      Validation.fromTryCatchNonFatal {
+        record.get(TownshipDuplicate.toString).map(_.toInt) getOrElse 0
+      })
 
-  def convertRecord(record: CSVRecord): ValidationNel[Throwable, TRS] = (
-    getState(record).toValidationNel |@|
-      getPrincipalMeridian(record).toValidationNel |@|
-      getTRNumber(record, TownshipNumber).toValidationNel |@|
-      getTRSFraction(record, TownshipFraction).toValidationNel |@|
-      getTownshipDirection(record).toValidationNel |@|
-      getTRNumber(record, RangeNumber).toValidationNel |@|
-      getTRSFraction(record, RangeFraction).toValidationNel |@|
-      getRangeDirection(record).toValidationNel |@|
-      getSectionNumber(record).toValidationNel |@|
-      getSectionDivision(record).toValidationNel |@|
-      getTownshipDuplicate(record).toValidationNel) {
+  def convertRecord(record: Record): ValidationNel[Throwable, TRS] = (
+    convertState(record).toValidationNel |@|
+      convertPrincipalMeridian(record).toValidationNel |@|
+      convertTRNumber(record, TownshipNumber).toValidationNel |@|
+      convertTRSFraction(record, TownshipFraction).toValidationNel |@|
+      convertTownshipDirection(record).toValidationNel |@|
+      convertTRNumber(record, RangeNumber).toValidationNel |@|
+      convertTRSFraction(record, RangeFraction).toValidationNel |@|
+      convertRangeDirection(record).toValidationNel |@|
+      convertSectionNumber(record).toValidationNel |@|
+      convertSectionDivision(record).toValidationNel |@|
+      convertTownshipDuplicate(record).toValidationNel) {
     TRS(_,_,_,_,_,_,_,_,_,_,_)
   }
 
@@ -169,9 +195,9 @@ object CSV {
     }
   }
 
-  type Rec = (Int, CSVRecord)
+  type Rec = (Int, Record)
 
-  def getRecords: EnumerateeT[String, Rec, IO] =
+  def asRecords: EnumerateeT[String, Rec, IO] =
     new EnumerateeT[String, Rec, IO] {
 
       def loop0[A] = step0 andThen cont[String, IO, StepT[Rec, IO, A]]
@@ -218,7 +244,7 @@ object CSV {
       override def apply[A] = doneOr(loop0)
     }
 
-  type RecPlus[A] = (Int, CSVRecord, A)
+  type RecPlus[A] = (Int, Record, A)
   type Parsed = RecPlus[ThrowablesOr[TRS]]
 
   implicit object ReqPlusTraverse1 extends Traverse1[RecPlus] {
@@ -244,7 +270,7 @@ object CSV {
     }
 
   def trsRecords[A](filename: String): EnumeratorT[Parsed, IO] =
-    parseRecords.run(getRecords.run(enumerateLines(filename)))
+    parseRecords.run(asRecords.run(enumerateLines(filename)))
 
   def toLatLonCSV(recp: RecPlus[ThrowablesOr[(Double,Double)]]): String = {
     val (_, rec, va) = recp
@@ -263,7 +289,7 @@ object CSV {
 
   def toHeader(recp: RecPlus[_]): String = {
     val (_, rec, _) = recp
-    (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(comma)
+      (rec.keys.toList ++ List(Latitude, Longitude, Comment)).mkString(comma)
   }
 
   type LatLonPlus = RecPlus[ThrowablesOr[(Double,Double)]]
