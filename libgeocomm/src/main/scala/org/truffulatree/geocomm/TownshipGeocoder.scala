@@ -77,7 +77,7 @@ abstract class TownshipGeoCoder[F[_]] {
     }
   }
 
-  def getDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
+  def selectDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
   if (elem.label == "TownshipGeocoderResult")
     (\/.fromTryCatchNonFatal {
       (elem \ "CompletionStatus").text match {
@@ -122,12 +122,6 @@ abstract class TownshipGeoCoder[F[_]] {
     }
   }).headOption.getOrElse((new Exception("Failed to find 'point' item")).left)
 
-  def getTownshipGeoCoderElem: (xml.Elem) => \/[Throwable, RSSChannel] =
-    getDataElem(_: xml.Elem) >>= parseRss >>= selectTownshipGeoCoderElem
-
-  def extractLatLon: (RSSChannel) => \/[Throwable, (Double, Double)] =
-    selectLatLonElem(_: RSSChannel) >>= parseLatLon
-
   def selectTownshipRangeSectionElem: (RSSChannel) => \/[Throwable, RSSItem] =
     selectGeoCoderElem("Township Range Section")
 
@@ -145,20 +139,18 @@ abstract class TownshipGeoCoder[F[_]] {
       getOrElse((new Exception("Failed to find 'polygon' item")).left)
   }
 
-  def extractTownshipRangeSection:
-      (RSSChannel) => \/[Throwable, List[(Double, Double)]] =
-    selectTownshipRangeSectionElem(_: RSSChannel) >>= parseTownshipRangeSection
-
-  def getPart[A](parser: (RSSChannel) => \/[Throwable, A]):
+  def findPart[A](parser: (RSSChannel) => \/[Throwable, A]):
       xml.Elem => \/[Throwable, A] =
-    getTownshipGeoCoderElem(_: xml.Elem) >>= parser
+    (selectDataElem(_: xml.Elem) >>= parseRss >>= 
+      selectTownshipGeoCoderElem >>= parser)
 
-  def getLatLon: (xml.Elem) => \/[Throwable, (Double, Double)] =
-    getPart(extractLatLon)
+  def findLatLon: (xml.Elem) => \/[Throwable, (Double, Double)] =
+    findPart(selectLatLonElem(_: RSSChannel) >>= parseLatLon)
 
-  def getTownshipRangeSection:
+  def findTownshipRangeSection:
       (xml.Elem) => \/[Throwable, List[(Double, Double)]] =
-    getPart(extractTownshipRangeSection)
+    findPart(selectTownshipRangeSectionElem(_: RSSChannel) >>=
+      parseTownshipRangeSection)
 
   def sendRequest: EnumerateeT[F[ThrowablesOr[TRS]], F[Requested], IO]
 
@@ -168,7 +160,7 @@ abstract class TownshipGeoCoder[F[_]] {
         thtel.fold(
           ths => Task.now(ths.left),
           tel => tel map { el =>
-            getLatLon(el).leftMap(NonEmptyList(_))
+            findLatLon(el).leftMap(NonEmptyList(_))
           })
       }
     }
