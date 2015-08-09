@@ -47,7 +47,8 @@ class CSVSpec extends UnitSpec {
     }
 
     "convert '23' as the 'Principal Meridian' to NewMexico PM" in {
-      (CSV.convertPrincipalMeridian(basicRecord + ("Principal Meridian" -> "23"))
+      (CSV.convertPrincipalMeridian(
+        basicRecord + ("Principal Meridian" -> "23"))
         should equal (Success(PrincipalMeridians.NewMexico)))
     }
 

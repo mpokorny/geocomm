@@ -78,7 +78,7 @@ object CSV {
       Validation[Throwable, Int] =
     convert(
       field,
-      Validation.fromTryCatchNonFatal(record(field.toString).toInt)) 
+      Validation.fromTryCatchNonFatal(record(field.toString).toInt))
 
   def convertTRSFraction(record: Record, field: Column):
       Validation[Throwable, TRS.Fraction] =

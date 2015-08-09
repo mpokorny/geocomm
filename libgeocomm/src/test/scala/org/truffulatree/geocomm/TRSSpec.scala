@@ -31,7 +31,7 @@ class TRSSpec extends UnitSpec with PartialFunctionValues {
     }
 
     "not allow integers outside of set {0,1,2,3}" in {
-      (an[TestFailedException] should be thrownBy 
+      (an[TestFailedException] should be thrownBy
         TRS.Fraction.valueAt(fractionMin - 1))
       (an[TestFailedException] should be thrownBy
         TRS.Fraction.valueAt(fractionMax + 1))

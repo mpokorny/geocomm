@@ -141,7 +141,7 @@ abstract class TownshipGeoCoder[F[_]] {
 
   def findPart[A](parser: (RSSChannel) => \/[Throwable, A]):
       xml.Elem => \/[Throwable, A] =
-    (selectDataElem(_: xml.Elem) >>= parseRss >>= 
+    (selectDataElem(_: xml.Elem) >>= parseRss >>=
       selectTownshipGeoCoderElem >>= parser)
 
   def findLatLon: (xml.Elem) => \/[Throwable, (Double, Double)] =
@@ -233,9 +233,9 @@ class MeteredTownshipGeoCoder[F[_]](
             el = fthtrs => {
               IterateeT.IterateeTMonadTrans.liftM(
                 makeRequestAfter(prev, fthtrs)).flatMap {
-                  case (req, latch) =>
-                    k(I.elInput(req)) >>== I.doneOr(loop(latch))
-                }
+                case (req, latch) =>
+                  k(I.elInput(req)) >>== I.doneOr(loop(latch))
+              }
             },
             empty = I.cont(step(prev)(k)),
             eof = I.done(I.scont(k), I.emptyInput))
