@@ -29,7 +29,7 @@ object TRS {
   type Fraction = Int @@ FractionT
 
   def Fraction: PartialFunction[Int, Fraction] = {
-    case (i) if FractionEnum.minVal <= i && i <= FractionEnum.maxVal =>
+    case i if FractionEnum.minVal <= i && i <= FractionEnum.maxVal =>
       Tag[Int, FractionT](i)
   }
 
