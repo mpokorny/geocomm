@@ -30,7 +30,7 @@ object Main extends SafeApp {
         IO(new MeteredTownshipGeoCoder[RecPlus]) using { geocoder =>
           for {
             ch <- latLons(geocoder, arg0).run
-            _ <- (writeCSV(arg0 + ".output") &= ChanEnumerator(ch)).run
+            _ <- (writeFile(arg0 + ".output") &= ChanEnumerator(ch)).run
           } yield ()
         }
     } getOrElse {
