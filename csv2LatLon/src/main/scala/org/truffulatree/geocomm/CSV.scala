@@ -272,19 +272,21 @@ object CSV {
   def trsRecords[A](filename: String): EnumeratorT[Parsed, IO] =
     parseRecords.run(asRecords.run(enumerateLines(filename)))
 
-  def toLatLonCSV(recp: RecPlus[ThrowablesOr[(Double,Double)]]): String = {
+  def toLatLonRecord(recp: RecPlus[ThrowablesOr[(Double,Double)]]): Record = {
     val (_, rec, va) = recp
-    val newCols = va.fold(
-      ths => List(
+    val (latitude, longitude, comment) = va.fold(
+      ths => (
         "",
         "",
         s""""${ths.map(_.getMessage).shows.filterNot(_ == '"')}""""),
       a => {
         val (lat, lon) = a
-        List(lat.shows, lon.shows, "")
+        (lat.shows, lon.shows, "")
       })
-    val newRec = rec.values.toList ++ newCols
-    newRec.mkString(comma)
+    rec ++ Map(
+      Latitude.toString -> latitude,
+      Longitude.toString -> longitude,
+      Comment.toString -> comment)
   }
 
   def toHeader(recp: RecPlus[_]): String = {
@@ -294,7 +296,7 @@ object CSV {
 
   type LatLonPlus = RecPlus[ThrowablesOr[(Double,Double)]]
 
-  def startCSVOutput(filename: String):
+  private[this] def startOutputFile(filename: String):
       Input[LatLonPlus] => IterateeT[LatLonPlus, IO, Unit] =
     in => in(
       el = llp => IterateeT.IterateeTMonadTrans[LatLonPlus].liftM {
@@ -308,17 +310,17 @@ object CSV {
         }
       } flatMap (ow =>
         ow.map(w => writeHeader(w, llp)).getOrElse(done((), eofInput))),
-      empty = cont(startCSVOutput(filename)),
+      empty = cont(startOutputFile(filename)),
       eof = done((), eofInput))
 
-  def writeHeader(writer: BufferedWriter, llp: LatLonPlus):
+  private[this] def writeHeader(writer: BufferedWriter, llp: LatLonPlus):
       IterateeT[LatLonPlus, IO, Unit] =
     IterateeT.IterateeTMonadTrans[LatLonPlus].liftM {
       IO(IoExceptionOr {
         val header = toHeader(llp)
         writer.write(header)
         writer.newLine()
-        val rec = toLatLonCSV(llp)
+        val rec = toLatLonRecord(llp).values.mkString(comma)
         writer.write(rec)
         writer.newLine()
       }) >>= { r =>
@@ -330,7 +332,8 @@ object CSV {
       }
     } flatMap (ow => writeRecords(ow))
 
-  def thenClose(writer: BufferedWriter): IO[Option[BufferedWriter]] = {
+  private[this] def thenClose(writer: BufferedWriter):
+      IO[Option[BufferedWriter]] = {
     (IO(IoExceptionOr(writer.close())) >>= { r =>
       r.fold(
         th => IO.putStrLn(
@@ -339,14 +342,13 @@ object CSV {
     }) >> IO(none[BufferedWriter])
   }
 
-  def writeRecords(writer: Option[BufferedWriter]):
+  private[this] def writeRecords(writer: Option[BufferedWriter]):
       IterateeT[LatLonPlus, IO, Unit] =
     foldM[LatLonPlus, IO, Option[BufferedWriter]](writer) { (ow, llp) =>
       (OptionT(IO(ow)) flatMap { w =>
         OptionT {
           IO(IoExceptionOr {
-            val rec = toLatLonCSV(llp)
-            w.write(rec)
+            w.write(toLatLonRecord(llp).values.mkString(comma))
             w.newLine()
           }) >>= { r =>
             r.fold(
@@ -365,6 +367,6 @@ object CSV {
       }
     }
 
-  def writeCSV(filename: String): IterateeT[LatLonPlus, IO, Unit] =
-    cont(startCSVOutput(filename))
+  def writeFile(filename: String): IterateeT[LatLonPlus, IO, Unit] =
+    cont(startOutputFile(filename))
 }
