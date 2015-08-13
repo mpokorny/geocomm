@@ -8,8 +8,6 @@ package org.truffulatree.geocomm
 
 import scala.language.higherKinds
 import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
-import scala.util.{ Failure => SFailure, Success => SSuccess }
 import scala.xml
 import scalaz._
 import iteratee._
@@ -17,65 +15,21 @@ import iteratee.{ Iteratee => I }
 import effect._
 import concurrent._
 import Scalaz._
-import dispatch._
 
-abstract class TownshipGeoCoder[F[_]] {
+trait TownshipGeoCoder[F[_]] {
+  this: TRSRequester =>
 
   implicit val tr: Traverse[F]
 
   import TownshipGeoCoder._
 
-  val townshipGeoCoder = url(
-    "http://www.geocommunicator.gov/TownshipGeoCoder/TownshipGeoCoder.asmx/GetLatLon")
-
   val georssNamespace = "http://www.georss.org/georss"
 
   implicit val ec: ExecutionContext
 
-  def trsProps(trs: TRS): String = {
-    List(
-      trs.state.toString,
-      trs.principalMeridian.id.shows,
-      trs.townshipNumber.shows,
-      Tag.unwrap(trs.townshipFraction).shows,
-      trs.townshipDirection.toString,
-      trs.rangeNumber.shows,
-      Tag.unwrap(trs.rangeFraction).shows,
-      trs.rangeDirection.toString,
-      Tag.unwrap(trs.sectionNumber).shows,
-      trs.sectionDivision.take(2).reverse.mkString(""),
-      trs.townshipDuplicate.shows).mkString(",")
-  }
+  def shutdown(): Unit
 
-  val requestTimeout = 2000 // ms
-
-  protected lazy val http = {
-    val result = Http.configure { builder =>
-      builder.setRequestTimeout(requestTimeout)
-    }
-    // Shutting down the Http instance is required to prevent a hang on exit.
-    Http.shutdown()
-    result
-  }
-
-  // Unfortunately, due to a bug in Dispatch (or its dependencies), Http
-  // instances need to be shut down to avoid a hang on program exit.
-  def shutdown(): Unit = {
-    http.shutdown()
-  }
-
-  protected def query(trs: TRS) =
-    townshipGeoCoder <<? Map("TRS" -> trsProps(trs))
-
-  def request(trs: TRS): Task[xml.Elem] = {
-    val req = http(query(trs) OK as.xml.Elem)
-    Task.async { cb =>
-      req onComplete {
-        case SSuccess(e) => cb(e.right)
-        case SFailure(th) => cb(th.left)
-      }
-    }
-  }
+  def request(trs: TRS): Task[xml.Elem]
 
   def selectDataElem: (xml.Elem) => \/[Throwable, xml.Elem] = elem =>
   if (elem.label == "TownshipGeocoderResult")
@@ -184,10 +138,9 @@ object TownshipGeoCoder {
     }
 }
 
-class MeteredTownshipGeoCoder[F[_]](
-  implicit val tr: Traverse[F],
-  implicit val ec: ExecutionContext)
+trait MeteredTownshipGeoCoder[F[_]]
     extends TownshipGeoCoder[F] {
+  this: TRSRequester =>
 
   import TownshipGeoCoder._
 
@@ -249,10 +202,9 @@ class MeteredTownshipGeoCoder[F[_]](
     }
 }
 
-class UnlimitedTownshipGeoCoder[F[_]](
-  implicit val tr: Traverse[F],
-  implicit val ec: ExecutionContext)
+trait UnlimitedTownshipGeoCoder[F[_]]
     extends TownshipGeoCoder[F] {
+  this: TRSRequester =>
 
   import TownshipGeoCoder._
 
