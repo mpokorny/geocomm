@@ -8,6 +8,10 @@ package org.truffulatree.geocomm
 
 object States extends Enumeration {
   type State = Value
-  val NewMexico = Value("NM")
-  val Utah = Value("UT")
+  val NM = Value
+  val apply: PartialFunction[String, Value] =
+    (str: String) => str match {
+      case "New Mexico" => NM
+      case "NM" => NM
+    }
 }

@@ -11,7 +11,7 @@ import Scalaz._
 
 case class TRS(
   state: States.State,
-  principalMeridian: PrincipalMeridians.PM,
+  principalMeridian: TRS.PrincipalMeridian,
   townshipNumber: Int,
   townshipFraction: TRS.Fraction,
   townshipDirection: Directions.NS,
@@ -33,27 +33,12 @@ object TRS {
       Tag[Int, FractionT](i)
   }
 
-  implicit object FractionEnum extends Enum[Fraction] {
-
+  implicit object FractionEnum extends IntRangeEnum[FractionT] {
     val minVal = 0
-
     val maxVal = 3
-
-    private[this] val range = maxVal - minVal + 1
-
-    override def order(x: Fraction, y: Fraction): Ordering =
-      Tag.unwrap(x) ?|? Tag.unwrap(y)
-
-    override def pred(a: Fraction): Fraction =
-      Fraction((Tag.unwrap(a) - minVal + range - 1) % range + minVal)
-
-    override def succ(a: Fraction): Fraction =
-      Fraction((Tag.unwrap(a) - minVal + 1) % range + minVal)
-
-    override def min: Option[Fraction] = Fraction(minVal).some
-
-    override def max: Option[Fraction] = Fraction(maxVal).some
+    val tagged = Fraction
   }
+
 
   sealed trait SectionT
 
@@ -64,25 +49,47 @@ object TRS {
       Tag[Int, SectionT](i)
   }
 
-  implicit object SectionEnum extends Enum[Section] {
-
+  implicit object SectionEnum extends IntRangeEnum[SectionT] {
     val minVal = 1
-
     val maxVal = 36
+    val tagged = Section
+  }
 
-    private[this] val range = maxVal - minVal + 1
+  sealed trait PrincipalMeridianT
 
-    override def order(x: Section, y: Section): Ordering =
-      Tag.unwrap(x) ?|? Tag.unwrap(y)
+  type PrincipalMeridian = Int @@ PrincipalMeridianT
 
-    override def pred(a: Section): Section =
-      Section((Tag.unwrap(a) - minVal + range - 1) % range + minVal)
+  object PrincipalMeridian {
+    def apply: PartialFunction[Int, PrincipalMeridian] = {
+      case i @ _ if PrincipalMeridianEnum.minVal <= i &&
+          i <= PrincipalMeridianEnum.maxVal =>
+        Tag[Int, PrincipalMeridianT](i)
+    }
 
-    override def succ(a: Section): Section =
-      Section((Tag.unwrap(a) - minVal + 1) % range + minVal)
+    def lookup(str: String): Option[PrincipalMeridian] =
+      names.get(str.toLowerCase)
 
-    override def min: Option[Section] = Section(minVal).some
+    lazy val names = {
+      val lcNames = List(
+        "first", "second", "third", "fourth", "fifth", "sixth",
+        "black hills", "boise", "chickasaw", "choctaw", "cimarron",
+        "copper river", "fairbanks", "gila and salt river", "humboldt",
+        "hunstville", "indian", "louisiana", "michigan", "montana",
+        "mount diablo", "navajo", "new mexico", "st helens", "st stephens",
+        "salt lake", "san bernardino", "seward", "tallahassee",
+        "uintah special", "ute", "washington", "willamette", "wind river",
+        "ohio", "INVALID", "muskigum river", "ohio river", "first scioto river",
+        "second scioto river", "third scioto river", "ellicotts line",
+        "twelve mile square", "kateel river", "umiat")
+      (lcNames.zipWithIndex.toMap - "INVALID") mapValues (i => apply(i + 1))
+    }
 
-    override def max: Option[Section] = Section(maxVal).some
+  }
+
+  implicit object PrincipalMeridianEnum 
+      extends IntRangeEnum[PrincipalMeridianT] {
+    val minVal = 1
+    val maxVal = 45
+    val tagged = PrincipalMeridian.apply
   }
 }

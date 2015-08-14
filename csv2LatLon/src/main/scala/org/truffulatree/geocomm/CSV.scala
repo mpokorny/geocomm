@@ -52,25 +52,26 @@ object CSV {
     convert(
       State,
       Validation.fromTryCatchNonFatal {
-        States.withName(record.get(State.toString).getOrElse("NM"))
+        States(record.get(State.toString).getOrElse("NM"))
       })
 
   def convertPrincipalMeridian(record: Record):
-      Validation[Throwable, PrincipalMeridians.PM] =
+      Validation[Throwable, TRS.PrincipalMeridian] =
     convert(
       PrincipalMeridian,
       {
         val pmCol = PrincipalMeridian.toString
         if (!record.contains(pmCol)) {
-          Validation.fromTryCatchNonFatal {
-            PrincipalMeridians.withName("NewMexico")
-          }
+          Validation.success(TRS.PrincipalMeridian.lookup("new mexico").get)
         } else {
+          val pmValue = record(pmCol)
           Validation.fromTryCatchNonFatal {
-            PrincipalMeridians(record(pmCol).toInt)
-          } ||| Validation.fromTryCatchNonFatal {
-            PrincipalMeridians.withName(record(pmCol))
-          }
+            TRS.PrincipalMeridian.apply(pmValue.toInt)
+          } |||
+          TRS.PrincipalMeridian.lookup(pmValue).map(Validation.success(_)).
+            getOrElse(
+              Validation.failure(
+                new Exception(s"Invalid '$pmCol' value '$pmValue'")))
         }
       })
 

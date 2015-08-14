@@ -17,7 +17,7 @@ class CSVSpec extends UnitSpec {
   val basicMap =
     Map(
       Columns.State.toString -> "NM",
-      Columns.PrincipalMeridian.toString -> "NewMexico",
+      Columns.PrincipalMeridian.toString -> "New Mexico",
       Columns.TownshipNumber.toString -> "10",
       Columns.TownshipFraction.toString -> "0",
       Columns.TownshipDirection.toString -> "N",
@@ -31,30 +31,32 @@ class CSVSpec extends UnitSpec {
   val basicRecord =
     SortedMap(basicMap.toSeq:_*)(Ordering.by(basicMap.keys.zipWithIndex.toMap))
 
+  val nmPM = TRS.PrincipalMeridian.apply(23)
+
   "CSV parsing" should {
     "convert 'NM' as the 'State' to New Mexico" in {
-      CSV.convertState(basicRecord) should equal (Success(States.NewMexico))
+      CSV.convertState(basicRecord) should equal (Success(States.NM))
     }
 
     "default to NM for the 'State' field value" in {
       (CSV.convertState(basicRecord - Columns.State.toString) should equal
-        (Success(States.NewMexico)))
+        (Success(States.NM)))
     }
 
     "convert 'NewMexico' as the 'Principal Meridian' to New Mexico PM" in {
-      (CSV.convertPrincipalMeridian(basicRecord) should
-        equal (Success(PrincipalMeridians.NewMexico)))
+      CSV.convertPrincipalMeridian(basicRecord) should equal (Success(nmPM))
     }
 
     "convert '23' as the 'Principal Meridian' to NewMexico PM" in {
       (CSV.convertPrincipalMeridian(
         basicRecord + ("Principal Meridian" -> "23"))
-        should equal (Success(PrincipalMeridians.NewMexico)))
+        should equal (Success(nmPM)))
     }
 
     "default to New Mexico PM for the 'Principal Meridian' field value" in {
-      (CSV.convertState(basicRecord - Columns.PrincipalMeridian.toString)
-        should equal (Success(States.NewMexico)))
+      (CSV.convertPrincipalMeridian(
+        basicRecord - Columns.PrincipalMeridian.toString)
+        should equal (Success(nmPM)))
     }
 
     "accept values 0-3 for the 'Township Fraction' field" in {
