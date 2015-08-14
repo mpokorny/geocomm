@@ -1,10 +1,10 @@
-Point ID,State,Principal Meridian,Township,Township Direction,Township Fraction,Range,Range Direction,Range Fraction,Township Duplicate,Section,Section Division
-MI-0001,NM,NewMexico,10,N,0,12,E,0,0,33,3
-MI-0002,NM,NewMexico,10,N,0,14,E,0,0,20,
-MI-0003,NM,NewMexico,10,N,0,15,E,0,0,23,
-MI-0004,NM,NewMexico,10,N,0,15,E,0,0,26,3
-MI-0005,NM,NewMexico,10,N,0,15,E,0,0,27,
-MI-0006,NM,NewMexico,10,N,0,15,E,0,0,32,22
-MI-0007,NM,23,10,N,0,15,E,0,0,36,22
-MI-0008,NM,NewMexico,10,N,0,13,E,0,0,4,
-MI-0009,NM,NewMexico,10,N,0,13,E,0,0,10,
+Point ID,State,Township,Township Direction,Township Fraction,Range,Range Direction,Range Fraction,Township Duplicate,Section,Section Division
+MI-0001,NM,10,N,0,12,E,0,0,33,3
+MI-0002,NM,10,N,0,14,E,0,0,20,
+MI-0003,NM,10,N,0,15,E,0,0,23,
+MI-0004,NM,10,N,0,15,E,0,0,26,3
+MI-0005,NM,10,N,0,15,E,0,0,27,
+MI-0006,NM,10,N,0,15,E,0,0,32,22
+MI-0007,NM,10,N,0,15,E,0,0,36,22
+MI-0008,NM,10,N,0,13,E,0,0,4,
+MI-0009,NM,10,N,0,13,E,0,0,10,
