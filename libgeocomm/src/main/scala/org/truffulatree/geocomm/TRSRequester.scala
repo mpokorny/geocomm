@@ -18,7 +18,7 @@ trait TRSRequester {
   def trsProps(trs: TRS): String = {
     List(
       trs.state.toString,
-      trs.principalMeridian.id.shows,
+      Tag.unwrap(trs.principalMeridian).shows,
       trs.townshipNumber.shows,
       Tag.unwrap(trs.townshipFraction).shows,
       trs.townshipDirection.toString,
