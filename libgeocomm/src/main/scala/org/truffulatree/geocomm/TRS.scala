@@ -34,9 +34,9 @@ object TRS {
   }
 
   implicit object FractionEnum extends IntRangeEnum[FractionT] {
-    val minVal = 0
-    val maxVal = 3
-    val tagged = Fraction
+    override val minVal = 0
+    override val maxVal = 3
+    override val tagged = Fraction
   }
 
 
@@ -50,9 +50,9 @@ object TRS {
   }
 
   implicit object SectionEnum extends IntRangeEnum[SectionT] {
-    val minVal = 1
-    val maxVal = 36
-    val tagged = Section
+    override val minVal = 1
+    override val maxVal = 36
+    override val tagged = Section
   }
 
   sealed trait PrincipalMeridianT
@@ -88,8 +88,8 @@ object TRS {
 
   implicit object PrincipalMeridianEnum 
       extends IntRangeEnum[PrincipalMeridianT] {
-    val minVal = 1
-    val maxVal = 45
-    val tagged = PrincipalMeridian.apply
+    override val minVal = 1
+    override val maxVal = 45
+    override val tagged = PrincipalMeridian.apply
   }
 }

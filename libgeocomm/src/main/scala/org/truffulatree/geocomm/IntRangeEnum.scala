@@ -11,26 +11,24 @@ import Scalaz._
 
 trait IntRangeEnum[T] extends Enum[Int @@ T] {
 
-  type G = Int @@ T
-
   val minVal: Int
 
   val maxVal: Int
 
-  val tagged: PartialFunction[Int, G]
+  val tagged: PartialFunction[Int, Int @@ T]
 
-  private[this] val range = maxVal - minVal + 1
+  lazy val range = maxVal - minVal + 1
 
-  override def order(x: G, y: G): Ordering =
+  override def order(x: Int @@ T, y: Int @@ T): Ordering =
     Tag.unwrap(x) ?|? Tag.unwrap(y)
 
-  override def pred(a: G): G =
+  override def pred(a: Int @@ T): Int @@ T =
     tagged((Tag.unwrap(a) - minVal + range - 1) % range + minVal)
 
-  override def succ(a: G): G =
+  override def succ(a: Int @@ T): Int @@ T =
     tagged((Tag.unwrap(a) - minVal + 1) % range + minVal)
 
-  override def min: Option[G] = tagged(minVal).some
+  override def min: Option[Int @@ T] = tagged(minVal).some
 
-  override def max: Option[G] = tagged(maxVal).some
+  override def max: Option[Int @@ T] = tagged(maxVal).some
 }
